@@ -1,0 +1,667 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    @session_start();
+}
+$currentUserName = $_SESSION['user']['name'] ?? $_SESSION['username'] ?? 'Palatiw DRRMO';
+$currentUserInitial = strtoupper(substr($currentUserName, 0, 1));
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SagipRekord | Easy Community Document Helper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <!-- Real Image OCR & PDF Reader Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+  <?php if (file_exists(__DIR__ . '/auth.css')): ?>
+  <link rel="stylesheet" href="auth.css" />
+  <?php endif; ?>
+</head>
+<body class="app-shell">
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+  <!-- TOP BAR -->
+  <header class="app-topbar">
+    <button id="sidebarToggle" class="icon-button mobile-menu-button" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="appSidebar">
+      <span class="burger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+    </button>
+
+    <button class="brand-lockup" type="button" onclick="NavigationModule.switchModule('dashboard')" aria-label="Go to Home">
+      <span class="brand-mark"><i class="fa-solid fa-life-ring"></i></span>
+      <span class="brand-copy">
+        <strong>SagipRekord</strong>
+        <small data-i18n="brandTagline">Easy paper helper for Barangay Palatiw</small>
+      </span>
+    </button>
+
+    <div class="topbar-actions">
+      <!-- Senior Citizen A+ Font Size Toggle -->
+      <button id="textSizeToggle" type="button" class="senior-text-btn" title="Make text larger and easier to read" aria-pressed="false">
+        <i class="fa-solid fa-text-height"></i>
+        <span data-i18n="largerText">A+ Larger Text</span>
+      </button>
+
+      <!-- Language Switch (ENG / TAG) -->
+      <div class="language-switch" role="group" aria-label="Choose language">
+        <button type="button" class="language-option is-selected" data-language="en" aria-pressed="true">ENG</button>
+        <button type="button" class="language-option" data-language="tl" aria-pressed="false">TAG</button>
+      </div>
+
+      <!-- Clickable Lumen AI Endpoint Configurator -->
+      <button id="engineBadge" type="button" class="engine-status" title="Click to configure Lumen OCR & AI Chat Endpoint URLs">
+        <span id="engineStatusDot" class="status-dot"></span>
+        <span id="engineStatusText">Lumen AI Ready</span>
+        <i class="fa-solid fa-gear text-xs opacity-70"></i>
+      </button>
+
+      <button id="sidebarToggleDesktop" class="icon-button desktop-menu-button" type="button" aria-label="Toggle sidebar" aria-expanded="true" aria-controls="appSidebar">
+        <span class="burger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- LEFT SIDEBAR -->
+  <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+  <aside id="appSidebar" class="app-sidebar" aria-label="Main menu">
+    <p class="sidebar-caption" data-i18n="workspace">MAIN MENU</p>
+    <nav class="sidebar-navigation">
+      <button type="button" class="sidebar-link is-active" data-module="dashboard" onclick="NavigationModule.switchModule('dashboard')">
+        <i class="fa-solid fa-house"></i>
+        <span data-i18n="overview">Home</span>
+      </button>
+      <button type="button" class="sidebar-link" data-module="wizard" onclick="NavigationModule.switchModule('wizard')">
+        <i class="fa-solid fa-camera"></i>
+        <span data-i18n="documentWizard">Scan a Paper</span>
+      </button>
+      <button type="button" class="sidebar-link" data-module="vault" onclick="NavigationModule.switchModule('vault')">
+        <i class="fa-solid fa-folder-open"></i>
+        <span data-i18n="recordsVault">Saved Papers</span>
+        <span id="navVaultCount" class="sidebar-count">0</span>
+      </button>
+      <button type="button" class="sidebar-link" data-module="impact" onclick="NavigationModule.switchModule('impact')">
+        <i class="fa-solid fa-circle-question"></i>
+        <span data-i18n="communityHub">Barangay Help</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-help">
+      <strong data-i18n="needHelp">Need help with a form or bill?</strong>
+      <p data-i18n="helpCopy">Take a photo of your paper and we will explain it in simple words.</p>
+      <button type="button" onclick="NavigationModule.switchModule('wizard'); WizardModule.goToStep(1)">
+        <span data-i18n="startDocument">Scan a paper now</span> <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+    <div class="sidebar-profile">
+      <span class="profile-avatar"><?php echo htmlspecialchars($currentUserInitial); ?></span>
+      <span>
+        <strong id="sidebarUserName"><?php echo htmlspecialchars($currentUserName); ?></strong>
+        <small>Community Workspace</small>
+      </span>
+    </div>
+  </aside>
+
+  <!-- =========================================================
+       MODULE 1: CALM, SIMPLE HOME DASHBOARD
+       ========================================================= -->
+  <main id="module-dashboard" class="app-module dashboard-module">
+    <section class="dashboard-welcome">
+      <div>
+        <p class="eyebrow"><span class="eyebrow-dot"></span><span data-i18n="welcomeEyebrow">YOUR COMMUNITY WORKSPACE</span></p>
+        <h1>
+          <span data-i18n="welcomeTitle">Good morning, Palatiw.</span><br>
+          <span class="heading-muted" data-i18n="welcomeSubtitle">Understand your papers in 3 easy steps.</span>
+        </h1>
+        <p class="welcome-copy" data-i18n="welcomeCopy">
+          Have a relief stub, electric bill, medical receipt, or barangay notice? Upload a photo to read it clearly, fix any typos, and see what to do next.
+        </p>
+        <div class="flex flex-wrap gap-3">
+          <button type="button" class="primary-button" onclick="NavigationModule.switchModule('wizard'); WizardModule.goToStep(1)">
+            <i class="fa-solid fa-camera"></i>
+            <span data-i18n="startDocument">Scan a Paper Now</span>
+            <i class="fa-solid fa-arrow-right button-arrow"></i>
+          </button>
+          <button type="button" class="secondary-button-outline" onclick="NavigationModule.switchModule('vault')">
+            <i class="fa-regular fa-folder-open"></i>
+            <span data-i18n="openVault">View Saved Papers</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="hero-art" aria-hidden="true">
+        <div class="globe-card">
+          <svg viewBox="0 0 170 170" role="img" aria-label="">
+            <defs><linearGradient id="globeFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#dfe9ff"/></linearGradient></defs>
+            <circle cx="85" cy="85" r="67" fill="url(#globeFill)"/>
+            <ellipse cx="85" cy="85" rx="31" ry="67" fill="none" stroke="#A58AE8" stroke-width="2" opacity=".65"/>
+            <ellipse cx="85" cy="85" rx="59" ry="24" fill="none" stroke="#4378E4" stroke-width="2" opacity=".4"/>
+            <path d="M21 85h128M85 19v132" stroke="#4378E4" stroke-width="1.5" opacity=".25"/>
+            <circle cx="128" cy="53" r="7" fill="#3364E1"/>
+          </svg>
+          <span class="globe-label"><i class="fa-solid fa-location-dot"></i> PALATIW, PASIG</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-heading mt-8">
+      <div>
+        <p class="eyebrow" data-i18n="simpleTools">HOW IT WORKS</p>
+        <h2 data-i18n="toolsTitle">Three easy steps for anyone to follow</h2>
+      </div>
+    </section>
+
+    <section class="feature-grid">
+      <article class="feature-card" onclick="NavigationModule.switchModule('wizard'); WizardModule.goToStep(1)">
+        <span class="feature-icon"><i class="fa-solid fa-camera"></i></span>
+        <span class="feature-step">STEP 1</span>
+        <h3 data-i18n="featureScanTitle">1. Upload or Pick a Paper</h3>
+        <p data-i18n="featureScanCopy">Take a photo of your form, receipt, bill, or notice so the app can read the words for you.</p>
+        <button type="button"><span data-i18n="scanDocument">Go to Step 1</span> <i class="fa-solid fa-arrow-right"></i></button>
+      </article>
+
+      <article class="feature-card" onclick="WizardModule.openStep2OrLoadSample()">
+        <span class="feature-icon lavender-icon"><i class="fa-solid fa-pen-to-square"></i></span>
+        <span class="feature-step">STEP 2</span>
+        <h3 data-i18n="featureVerifyTitle">2. Check & Fix Details</h3>
+        <p data-i18n="featureVerifyCopy">Make sure the name, number, and words are spelled right. You can easily edit any mistake.</p>
+        <button type="button"><span data-i18n="reviewDetails">Check details</span> <i class="fa-solid fa-arrow-right"></i></button>
+      </article>
+
+      <article class="feature-card" onclick="NavigationModule.switchModule('vault')">
+        <span class="feature-icon"><i class="fa-solid fa-list-check"></i></span>
+        <span class="feature-step">STEP 3</span>
+        <h3 data-i18n="featureOrganizeTitle">3. Read Simple Guide & Save</h3>
+        <p data-i18n="featureOrganizeCopy">Get a clear explanation in Taglish or Tagalog, follow the checklist, and save your record.</p>
+        <button type="button"><span data-i18n="openVault">Open Saved Papers</span> <i class="fa-solid fa-arrow-right"></i></button>
+      </article>
+    </section>
+
+    <section class="stats-grid" aria-label="Workspace statistics">
+      <article class="stat-card">
+        <span class="stat-icon"><i class="fa-regular fa-folder-open"></i></span>
+        <p data-i18n="savedRecords">Saved Papers</p>
+        <strong id="dashboardRecordCount">0</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-icon"><i class="fa-solid fa-user-check"></i></span>
+        <p data-i18n="verifiedRecords">Checked by People</p>
+        <strong id="dashboardVerifiedCount">0</strong>
+      </article>
+      <article class="stat-card">
+        <span class="stat-icon accent-icon"><i class="fa-solid fa-list-check"></i></span>
+        <p data-i18n="actionSteps">Checklist Tasks</p>
+        <strong id="dashboardActionCount">0</strong>
+      </article>
+    </section>
+  </main>
+
+  <!-- =========================================================
+       MODULE 2: SINGLE-COLUMN, SENIOR-FRIENDLY 3-STEP WIZARD
+       ========================================================= -->
+  <main id="module-wizard" class="app-module hidden">
+    <div class="wizard-single-container">
+
+      <!-- LARGE 3-STEP PROGRESS BAR -->
+      <div class="step-progress-bar">
+        <button type="button" onclick="WizardModule.goToStep(1)" id="stepperBtn-1" class="stepper-node active-node">
+          <div class="step-circle">1</div>
+          <div>
+            <span class="step-label">STEP 1</span>
+            <p class="step-title" data-i18n="step1Title">Read the Paper</p>
+          </div>
+          <span id="step1Check" class="hidden ml-auto text-emerald-600 text-lg"><i class="fa-solid fa-circle-check"></i></span>
+        </button>
+
+        <button type="button" onclick="WizardModule.goToStep(2)" id="stepperBtn-2" class="stepper-node">
+          <div class="step-circle">2</div>
+          <div>
+            <span class="step-label">STEP 2</span>
+            <p class="step-title" data-i18n="step2Title">Check & Fix</p>
+          </div>
+          <span id="step2Check" class="hidden ml-auto text-emerald-600 text-lg"><i class="fa-solid fa-circle-check"></i></span>
+        </button>
+
+        <button type="button" onclick="WizardModule.goToStep(3)" id="stepperBtn-3" class="stepper-node">
+          <div class="step-circle">3</div>
+          <div>
+            <span class="step-label">STEP 3</span>
+            <p class="step-title" data-i18n="step3Title">Simple Guide & Save</p>
+          </div>
+          <span id="step3Check" class="hidden ml-auto text-emerald-600 text-lg"><i class="fa-solid fa-circle-check"></i></span>
+        </button>
+      </div>
+
+      <!-- COMPACT ACTIVE PAPER STATUS BAR -->
+      <div class="active-paper-banner">
+        <div class="flex items-center gap-3">
+          <span class="banner-icon"><i class="fa-regular fa-file-lines"></i></span>
+          <div>
+            <span id="contextCategory" class="font-bold text-slate-800">No paper chosen yet</span>
+            <span class="mx-2 text-slate-300">•</span>
+            <span id="contextResident" class="text-slate-600">Select or upload a paper below</span>
+            <span id="contextRef" class="hidden"></span>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="diffCounterBadge" class="status-pill">Waiting for paper</span>
+          <button type="button" id="clearFormBtn" class="reset-link" title="Start over with a new paper">
+            <i class="fa-solid fa-rotate-left"></i> <span data-i18n="startOver">Start Over</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- STEP 1 PANEL: UPLOAD OR CHOOSE SAMPLE PAPER -->
+      <section id="wizardStep-1" class="wizard-panel clean-card">
+        <div class="card-header-simple">
+          <span class="step-badge">STEP 1 OF 3 • UNDERSTAND</span>
+          <h2 data-i18n="step1Heading">Upload a photo or PDF of your paper</h2>
+          <p data-i18n="step1Sub">Take a picture or choose a file (form, receipt, bill, or notice) so we can read every word on it.</p>
+        </div>
+
+        <form id="ocrForm" class="space-y-5">
+          <div class="upload-split">
+            <label id="dropZone" class="upload-box">
+              <div class="upload-icon-circle">
+                <i class="fa-solid fa-camera"></i>
+              </div>
+              <span id="fileNameDisplay" class="upload-main-text" data-i18n="tapToUpload">Tap here to choose a photo or PDF</span>
+              <span class="upload-sub-text" data-i18n="uploadHint">Works with real photos of forms, receipts, electric bills, and notices</span>
+              <input type="file" id="documentInput" name="document" accept="image/*,.pdf" class="hidden" />
+            </label>
+
+            <div id="previewBox" class="preview-card">
+              <i class="fa-regular fa-image text-3xl text-slate-300 mb-2"></i>
+              <p class="text-sm font-bold text-slate-500" data-i18n="previewLabel">Picture Preview</p>
+            </div>
+          </div>
+
+          <button type="submit" id="ocrBtn" class="big-action-btn">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+            <span data-i18n="readPaperBtn">Read This Paper & Go to Step 2</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </form>
+
+        <div class="sample-section">
+          <p class="sample-title" data-i18n="trySampleTitle">Or tap a sample paper below to test right away:</p>
+          <div class="sample-grid">
+            <button type="button" onclick="WizardModule.loadPreset('form')" class="sample-card">
+              <i class="fa-regular fa-id-card sample-icon"></i>
+              <div>
+                <strong>1. Relief Card (DAF-AC)</strong>
+                <small>Barangay family relief form</small>
+              </div>
+            </button>
+
+            <button type="button" onclick="WizardModule.loadPreset('notice')" class="sample-card">
+              <i class="fa-solid fa-bullhorn sample-icon"></i>
+              <div>
+                <strong>2. Barangay Notice</strong>
+                <small>Ayuda & lost ID announcement</small>
+              </div>
+            </button>
+
+            <button type="button" onclick="WizardModule.loadPreset('bill')" class="sample-card">
+              <i class="fa-solid fa-bolt sample-icon"></i>
+              <div>
+                <strong>3. Meralco Electric Bill</strong>
+                <small>Monthly bill & due date</small>
+              </div>
+            </button>
+
+            <button type="button" onclick="WizardModule.loadPreset('receipt')" class="sample-card">
+              <i class="fa-solid fa-receipt sample-icon"></i>
+              <div>
+                <strong>4. Pharmacy Receipt</strong>
+                <small>Senior citizen medicine receipt</small>
+              </div>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 2 PANEL: CHECK & FIX -->
+      <section id="wizardStep-2" class="wizard-panel hidden clean-card">
+        <div class="card-header-simple">
+          <span class="step-badge">STEP 2 OF 3 • CHECK & CORRECT</span>
+          <h2 data-i18n="step2Heading">Check if the details are correct</h2>
+          <p data-i18n="step2Sub">Sometimes computers misread blurry or handwritten letters. Tap any box below to fix mistakes before saving.</p>
+        </div>
+
+        <input type="hidden" id="recordId" value="" />
+        <input type="hidden" id="originalOcrStore" value="" />
+
+        <div class="simple-form-grid">
+          <div class="form-group">
+            <label for="docType" data-i18n="labelDocType">1. What kind of paper is this?</label>
+            <select id="docType" class="big-input">
+              <option value="Forms (DAF-AC Relief Intake)">Relief or Government Form</option>
+              <option value="Notices (LGU / Barangay Advisory)">Barangay or City Notice</option>
+              <option value="Bills (Utility / Disconnection Notice)">Electric / Water Bill</option>
+              <option value="Receipts (Pharmacy / Relief Supply)">Medicine or Store Receipt</option>
+              <option value="Records (Medical Rx / Senior ID)">Medical Prescription / ID</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="residentName" data-i18n="labelName">2. Full Name on the Paper</label>
+            <input type="text" id="residentName" placeholder="e.g., Mendoza, Teresita L." class="big-input" />
+          </div>
+
+          <div class="form-group">
+            <label for="referenceNo" data-i18n="labelRef">3. Control / Stub / Account Number</label>
+            <input type="text" id="referenceNo" placeholder="e.g., PLTW-2026-0915" class="big-input font-mono" />
+          </div>
+
+          <div class="form-group">
+            <label for="amountOrDate" data-i18n="labelDate">4. Amount or Deadline Date</label>
+            <input type="text" id="amountOrDate" placeholder="e.g., PHP 5,000.00 • Nov 16" class="big-input" />
+          </div>
+        </div>
+
+        <div class="form-group mt-5">
+          <div class="flex flex-wrap justify-between items-center mb-2 gap-2">
+            <label for="verifiedOcrText" class="mb-0" data-i18n="labelWords">5. Words Read from the Paper (Tap inside to fix any typos)</label>
+            <span id="editIndicator" class="text-sm font-bold text-blue-700">Ready to check</span>
+          </div>
+          <textarea id="verifiedOcrText" rows="6" placeholder="The words from your paper will appear here..." class="big-textarea font-mono"></textarea>
+        </div>
+
+        <details class="more-options-drawer">
+          <summary data-i18n="moreOptions">Optional: Address, Priority & Compare Original Scan</summary>
+          <div class="drawer-content space-y-4 pt-4">
+            <div class="simple-form-grid">
+              <div class="form-group">
+                <label for="purokAddress">Address / Location</label>
+                <input type="text" id="purokAddress" placeholder="e.g., Purok 4, Brgy. Palatiw" class="big-input" />
+              </div>
+              <div class="form-group">
+                <label for="priorityLevel">Urgency Level</label>
+                <select id="priorityLevel" class="big-input">
+                  <option value="High Priority">High Priority (Senior / Medicine / Urgent)</option>
+                  <option value="Action Required">Needs Action (Has Deadline / Bill)</option>
+                  <option value="Standard Record">Regular Saved Record</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="correctionNote">What did you correct? (Verification Note)</label>
+              <input type="text" id="correctionNote" placeholder="e.g., Fixed spelling of surname" class="big-input" />
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-2">
+              <button type="button" id="toggleDiffBtn" class="secondary-button-outline text-sm">
+                <i class="fa-solid fa-columns"></i> Show Original Unedited Scan
+              </button>
+              <button type="button" id="restoreOriginalBtn" class="reset-link text-sm">
+                Restore Original Text
+              </button>
+            </div>
+
+            <div id="ocrComparisonGrid">
+              <div id="diffDrawer" class="hidden bg-slate-100 rounded-xl p-4 border border-slate-300 mt-2">
+                <strong class="block text-sm mb-1">Original Unedited Scan (Before Your Fixes):</strong>
+                <pre id="rawOcrComparison" class="text-sm font-mono whitespace-pre-wrap">No scan loaded yet.</pre>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div class="wizard-footer-nav">
+          <button type="button" onclick="WizardModule.goToStep(1)" class="back-btn">
+            <i class="fa-solid fa-arrow-left"></i>
+            <span data-i18n="backStep1">Back to Step 1</span>
+          </button>
+
+          <button type="button" id="proceedToStep3Btn" class="big-action-btn">
+            <i class="fa-solid fa-check-double"></i>
+            <span data-i18n="looksGoodBtn">Looks Good! Explain What to Do Next (Step 3)</span>
+            <i class="fa-solid fa-arrow-right"></i>
+          </button>
+        </div>
+      </section>
+
+      <!-- STEP 3 PANEL: SIMPLE EXPLANATION, CHECKLIST & SAVE -->
+      <section id="wizardStep-3" class="wizard-panel hidden clean-card">
+        <div class="card-header-simple flex flex-wrap justify-between items-start gap-4">
+          <div>
+            <span class="step-badge">STEP 3 OF 3 • SIMPLE GUIDE & SAVE</span>
+            <h2 data-i18n="step3Heading">Simple Explanation & What to Do Next</h2>
+            <p data-i18n="step3Sub">Read the simple explanation below, check off your to-do list, and save this paper.</p>
+          </div>
+
+          <div class="language-select-box">
+            <label for="chatLanguage" class="text-sm font-bold block mb-1">Explain in:</label>
+            <select id="chatLanguage" class="big-input py-2">
+              <option value="Taglish (Simple Filipino-English)">Taglish (Filipino + English)</option>
+              <option value="Simple Tagalog">Simple Tagalog</option>
+              <option value="Simple Plain English">Simple Plain English</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="helpful-buttons-row">
+          <button type="button" id="explainBtn" class="helpful-pill primary-pill">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+            <span data-i18n="btnExplainSimple">Explain in Simple Words</span>
+          </button>
+          <button type="button" class="prompt-pill helpful-pill" data-prompt="Anu-ano ang mga kailangang dalhin na requirements, magkano ang babayaran o matatanggap, at kailan ang deadline?">
+            <i class="fa-solid fa-calendar-check"></i>
+            <span data-i18n="btnRequirements">What to Bring & Deadlines</span>
+          </button>
+          <button type="button" class="prompt-pill helpful-pill" data-prompt="Paano makakakuha ng diskwento, installment plan, o libreng tulong sa Barangay Palatiw / DSWD / Malasakit Center base sa dokumentong ito?">
+            <i class="fa-solid fa-hand-holding-heart"></i>
+            <span data-i18n="btnHowToClaim">How to Claim Free Aid / Discount</span>
+          </button>
+        </div>
+
+        <div class="form-group">
+          <div class="flex justify-between items-center mb-2">
+            <label for="verifiedAiAdvice" class="mb-0" data-i18n="labelExplanation">Simple Explanation (You can also edit these notes)</label>
+            <span id="aiStatusText" class="text-sm font-bold text-blue-700">Ready</span>
+          </div>
+          <textarea id="verifiedAiAdvice" rows="7" placeholder="Tap 'Explain in Simple Words' above to see the explanation..." class="big-textarea"></textarea>
+        </div>
+
+        <div class="ask-box">
+          <input type="text" id="customQuestion" placeholder="Ask a question about this paper (e.g., Magkano ang babayaran at kailan ang deadline?)" class="big-input flex-1" />
+          <button type="button" id="askCustomBtn" class="ask-btn">
+            <i class="fa-solid fa-paper-plane"></i> Ask
+          </button>
+        </div>
+
+        <div class="checklist-card">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h3 class="text-base font-extrabold flex items-center gap-2">
+                <i class="fa-solid fa-square-check text-blue-700"></i>
+                <span data-i18n="checklistHeading">Steps to Follow (Tap to Check Off)</span>
+              </h3>
+            </div>
+            <div class="flex gap-2">
+              <input type="text" id="newTaskInput" placeholder="Add a reminder..." class="big-input py-1.5 text-sm" />
+              <button type="button" id="addTaskBtn" class="ask-btn py-1.5 px-4 text-sm">+ Add</button>
+            </div>
+          </div>
+          <div id="checklistContainer" class="space-y-2.5"></div>
+        </div>
+
+        <div class="wizard-footer-nav">
+          <button type="button" onclick="WizardModule.goToStep(2)" class="back-btn">
+            <i class="fa-solid fa-arrow-left"></i>
+            <span data-i18n="backStep2">Back to Step 2</span>
+          </button>
+
+          <div class="flex flex-wrap gap-3">
+            <button type="button" id="previewSlipBtn" class="secondary-button-outline">
+              <i class="fa-solid fa-print"></i>
+              <span data-i18n="printSlipBtn">Print Slip</span>
+            </button>
+
+            <button type="button" id="saveRecordBtn" class="big-action-btn">
+              <i class="fa-solid fa-floppy-disk"></i>
+              <span data-i18n="savePaperBtn">Save This Paper</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- =========================================================
+       MODULE 3: SAVED PAPERS VAULT
+       ========================================================= -->
+  <main id="module-vault" class="app-module hidden">
+    <div class="max-w-5xl mx-auto space-y-6">
+
+      <div class="clean-card flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <span class="step-badge">SAVED PAPERS VAULT</span>
+          <h2 class="text-2xl font-extrabold mt-1" data-i18n="vaultHeading">Your Saved Community Papers</h2>
+          <p class="text-base text-slate-600" data-i18n="vaultSub">Find your checked forms, bills, notices, and checklists anytime.</p>
+        </div>
+
+        <div class="flex flex-wrap gap-3">
+          <button type="button" onclick="NavigationModule.switchModule('wizard'); WizardModule.goToStep(1);" class="primary-button">
+            <i class="fa-solid fa-plus"></i> <span data-i18n="scanNewBtn">Scan New Paper</span>
+          </button>
+          <button type="button" id="exportCsvBtn" class="secondary-button-outline">
+            <i class="fa-solid fa-download"></i> <span>Download List (CSV)</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="hidden">
+        <span id="statTotal">0</span>
+        <span id="statUrgent">0</span>
+        <span id="statEdits">0</span>
+      </div>
+
+      <div class="clean-card p-4 flex flex-wrap gap-3">
+        <div class="relative flex-1 min-w-[240px]">
+          <i class="fa-solid fa-magnifying-glass absolute left-4 top-4 text-slate-400"></i>
+          <input type="text" id="vaultSearch" placeholder="Type a name or number to search..." class="big-input pl-11 w-full" />
+        </div>
+
+        <select id="vaultFilter" class="big-input w-auto">
+          <option value="ALL">All Types of Papers</option>
+          <option value="Forms (DAF-AC Relief Intake)">Relief & Gov Forms</option>
+          <option value="Notices (LGU / Barangay Advisory)">Barangay Notices</option>
+          <option value="Bills (Utility / Disconnection Notice)">Electric & Water Bills</option>
+          <option value="Receipts (Pharmacy / Relief Supply)">Medicine Receipts</option>
+          <option value="Records (Medical Rx / Senior ID)">Medical & ID Records</option>
+        </select>
+
+        <select id="vaultPriorityFilter" class="big-input w-auto">
+          <option value="ALL">All Priorities</option>
+          <option value="High Priority">High Priority</option>
+          <option value="Action Required">Needs Action</option>
+          <option value="Standard Record">Regular Record</option>
+        </select>
+      </div>
+
+      <div id="vaultList" class="grid grid-cols-1 md:grid-cols-2 gap-5"></div>
+    </div>
+  </main>
+
+  <!-- =========================================================
+       MODULE 4: BARANGAY HELP & COMMUNITY IMPACT HUB
+       ========================================================= -->
+  <main id="module-impact" class="app-module hidden">
+    <div class="max-w-5xl mx-auto space-y-6">
+      <section class="clean-card space-y-4">
+        <span class="step-badge">BARANGAY PARTNER & HELP DESK</span>
+        <h2 class="text-2xl font-extrabold">Barangay Palatiw DRRMO & Senior Citizen Help Desk</h2>
+        <p class="text-base text-slate-600 leading-relaxed">
+          Built for residents, senior citizens, and barangay volunteers in <strong>Barangay Palatiw, Pasig City</strong> so no family loses important relief records or misses assistance because of confusing paperwork.
+        </p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+          <div class="p-5 rounded-2xl bg-[#EEF4FF] border border-blue-200">
+            <h3 class="text-lg font-extrabold text-[#214AC6] mb-1">
+              <i class="fa-solid fa-house-medical mr-1"></i> Brgy. Palatiw Health & DRRMO Desk
+            </h3>
+            <p class="text-sm text-slate-700">Bring your printed or saved SagipRekord Slip to claim maintenance medicine, relief packs, or a free Barangay Calamity Certificate.</p>
+          </div>
+
+          <div class="p-5 rounded-2xl bg-[#EEF4FF] border border-blue-200">
+            <h3 class="text-lg font-extrabold text-[#214AC6] mb-1">
+              <i class="fa-solid fa-earth-asia mr-1"></i> UN SDG 11 & SDG 13 Aligned
+            </h3>
+            <p class="text-sm text-slate-700">Supports <strong>SDG 11 (Sustainable Cities & Communities)</strong> and <strong>SDG 13 (Climate Action)</strong> through inclusive disaster preparedness.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- MODAL 1: PRINTABLE BARANGAY ACTION SLIP -->
+  <div id="slipModal" class="fixed inset-0 bg-slate-950/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white text-slate-900 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+      <div class="flex justify-between items-start border-b border-slate-200 pb-3 mb-4">
+        <div>
+          <span class="step-badge">OFFICIAL VERIFIED SLIP</span>
+          <h3 class="text-xl font-black mt-1">BARANGAY PALATIW • SAGIPREKORD</h3>
+          <p class="text-sm text-slate-500">Pasig City • Checked & Verified Document Summary</p>
+        </div>
+        <button type="button" id="closeSlipModal" class="text-slate-400 hover:text-slate-700 text-2xl font-bold">&times;</button>
+      </div>
+
+      <div id="slipModalBody" class="space-y-3 text-sm"></div>
+
+      <div class="mt-6 pt-4 border-t border-slate-200 flex justify-end gap-3">
+        <button type="button" onclick="window.print()" class="primary-button">
+          <i class="fa-solid fa-print"></i> Print / Save PDF
+        </button>
+        <button type="button" id="closeSlipBtn2" class="secondary-button-outline">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: LUMEN API ENDPOINT CONFIGURATOR -->
+  <div id="apiConfigModal" class="fixed inset-0 bg-slate-950/60 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white text-slate-900 rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      <div class="flex justify-between items-start border-b border-slate-200 pb-3">
+        <div>
+          <span class="step-badge">BACKEND .ENV CONFIGURATION</span>
+          <h3 class="text-xl font-black mt-1">Connect Lumen OCR & AI Chat URLs</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Your API Key & Secret are stored in <code class="font-mono">.env</code> on the backend.</p>
+        </div>
+        <button type="button" id="closeApiConfigModal" class="text-slate-400 hover:text-slate-700 text-2xl font-bold">&times;</button>
+      </div>
+
+      <div class="space-y-3 text-sm">
+        <div>
+          <label for="ocrUrlInput" class="block font-bold mb-1">1. Lumen OCR Endpoint URL (from "OCR Docs" button)</label>
+          <input type="url" id="ocrUrlInput" placeholder="https://.../ocr (Leave blank for built-in Real Image/PDF OCR)" class="big-input text-sm font-mono" />
+        </div>
+        <div>
+          <label for="chatUrlInput" class="block font-bold mb-1">2. Lumen AI Chat Endpoint URL (from "AI Chat Docs" button)</label>
+          <input type="url" id="chatUrlInput" placeholder="https://.../chat (Leave blank for built-in Dynamic Document Analyzer)" class="big-input text-sm font-mono" />
+        </div>
+      </div>
+
+      <div class="pt-2 border-t border-slate-200 flex justify-end gap-3">
+        <button type="button" id="saveApiConfigBtn" class="primary-button py-2 px-5 min-h-[44px] text-sm">
+          <i class="fa-solid fa-floppy-disk"></i> Save to .env
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <?php if (file_exists(__DIR__ . '/auth.js')): ?>
+  <script src="auth.js"></script>
+  <?php endif; ?>
+  <script src="app.js"></script>
+</body>
+</html>

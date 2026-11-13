@@ -1,0 +1,4 @@
+.env
+records.json
+uploads/
+.DS_Store
