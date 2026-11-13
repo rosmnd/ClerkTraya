@@ -800,81 +800,11 @@ const VaultModule = {
    EVENT LISTENERS & INITIALIZATION
    ========================================================= */
 document.addEventListener('DOMContentLoaded', () => {
-  const documentInput = document.getElementById('documentInput');
-  const dropZone = document.getElementById('dropZone');
-
   document.querySelectorAll('.language-option').forEach(button => {
     button.addEventListener('click', () => I18n.setLanguage(button.dataset.language));
   });
   I18n.setLanguage('en');
   updateDashboardMetrics();
-
-  // File Preview handler
-  function handleFilePreview(file) {
-    if (!file) return;
-    document.getElementById('fileNameDisplay').textContent = `Selected: ${file.name}`;
-    const previewBox = document.getElementById('previewBox');
-    if (file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        previewBox.innerHTML = `<img src="${e.target.result}" alt="Preview" class="max-h-36 object-contain rounded-lg shadow-xs" />`;
-      };
-      reader.readAsDataURL(file);
-    } else {
-      previewBox.innerHTML = `<i class="fa-solid fa-file-pdf text-3xl text-rose-500 mb-1"></i><span class="text-xs font-bold text-slate-600">${file.name}</span>`;
-    }
-  }
-
-  documentInput.addEventListener('change', () => handleFilePreview(documentInput.files[0]));
-  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-active'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-active'));
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-active');
-    if (e.dataTransfer.files.length) {
-      documentInput.files = e.dataTransfer.files;
-      handleFilePreview(e.dataTransfer.files[0]);
-    }
-  });
-
-  // Step 1: OCR Form Submit -> Automatically Advances to Step 2
-  document.getElementById('ocrForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!documentInput.files.length) {
-      showToast('Please select an image/PDF file or click one of the 4 Demo Papers below!', 'warning');
-      return;
-    }
-
-    const ocrBtn = document.getElementById('ocrBtn');
-    const formData = new FormData();
-    formData.append('document', documentInput.files[0]);
-
-    ocrBtn.disabled = true;
-    ocrBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Reading Document with Lumen OCR...</span>`;
-
-    try {
-      const res = await fetch('api.php?action=ocr', { method: 'POST', body: formData });
-      const data = await res.json();
-
-      if (data.success) {
-        document.getElementById('originalOcrStore').value = data.raw_text;
-        document.getElementById('rawOcrComparison').textContent = data.raw_text;
-        document.getElementById('verifiedOcrText').value = data.raw_text;
-        OcrAndVerifyModule.autoExtractMetadata(data.raw_text);
-        OcrAndVerifyModule.updateDiffAudit();
-        document.getElementById('step1Check').classList.remove('hidden');
-        WizardModule.goToStep(2);
-        showToast('Step 1 Complete! Please verify or correct the extracted text in Step 2.', 'success');
-      } else {
-        showToast(data.error || 'OCR scan failed', 'error');
-      }
-    } catch (err) {
-      showToast('Error connecting to api.php backend', 'error');
-    } finally {
-      ocrBtn.disabled = false;
-      ocrBtn.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> <span>Scan Document with Lumen OCR & Continue to Step 2</span> <i class="fa-solid fa-arrow-right ml-1"></i>`;
-    }
-  });
 
   // Step 2: Live Diff & Side-by-Side Comparison Toggle
   document.getElementById('verifiedOcrText').addEventListener('input', () => OcrAndVerifyModule.updateDiffAudit());

@@ -169,9 +169,7 @@ function initializeWizard() {
     try {
       const data = await requestApi('ocr', { method: 'POST', body: formData });
       setDocumentText(data.raw_text, file.name);
-      showToast(data.mode === 'demo_fallback'
-        ? 'Demo OCR text loaded. Review it before saving.'
-        : 'Document text extracted. Review it before saving.', 'success');
+      showToast('Document text extracted. Review it before saving.', 'success');
     } catch (error) {
       showToast(error.message || 'The document could not be scanned.', 'error');
     } finally {

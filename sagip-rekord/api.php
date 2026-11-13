@@ -161,6 +161,26 @@ if ($action === 'ocr') {
         respond(['success' => false, 'error' => 'Use a JPEG, PNG, WebP image, or PDF document.'], 415);
     }
 
+    if ($demoMode) {
+        respond(['success' => false, 'error' => 'Live OCR is disabled while demo mode is enabled. Set SAGIPREKORD_DEMO_MODE=false in .env to scan actual documents.'], 503);
+    }
+    $missingOcrConfig = [];
+    if ($ocrUrl === '') {
+        $missingOcrConfig[] = 'LUMEN_OCR_URL';
+    }
+    if ($apiKey === '') {
+        $missingOcrConfig[] = 'LUMEN_API_KEY';
+    }
+    if ($apiSecret === '') {
+        $missingOcrConfig[] = 'LUMEN_API_SECRET';
+    }
+    if ($missingOcrConfig !== []) {
+        respond([
+            'success' => false,
+            'error' => 'Live OCR is not configured. Add ' . implode(', ', $missingOcrConfig) . ' to your private .env file. No sample text was substituted.',
+        ], 503);
+    }
+
     if (!$demoMode && $ocrUrl !== '' && $hasLumenCredentials) {
         if (!function_exists('curl_init')) {
             respond(['success' => false, 'error' => 'The PHP cURL extension is required for live Lumen OCR.'], 503);
@@ -199,11 +219,7 @@ if ($action === 'ocr') {
         respond(['success' => true, 'mode' => 'live_lumen_ocr', 'raw_text' => $rawText]);
     }
 
-    respond([
-        'success' => true,
-        'mode' => 'demo_fallback',
-        'raw_text' => "REPUBLIC OF THE PHILIPPINES\nBARANGAY PALATIW, PASIG CITY - DRRMO\nDISASTER ASSISTANCE FAMILY ACCESS CARD (DAF-AC)\n\nDate Issued: Nov 13, 2026\nControl / Stub No: PLTW-2026-0915\nHead of Household: Mendoza, Teresita L.\nAddress: Purok 4, Market Ave., Brgy. Palatiw, Pasig City\nAmount / Assistance: PHP 5,000.00 Emergency Cash Transfer (ECT)\nMedical / Urgent Needs: Insulin Pen (Glargine), Senior Citizen ID damaged by flood.\nDeadline: Claim on or before Nov 16, 2026 at Brgy. Palatiw Covered Court.",
-    ]);
+    respond(['success' => false, 'error' => 'Live OCR could not be configured. Check your .env settings and try again.'], 503);
 }
 
 if ($action === 'chat') {

@@ -32,9 +32,11 @@ Change its value when the API is deployed at another path. All frontend requests
 
 ## Lumen and demo mode
 
-Without Lumen credentials and endpoint URLs, OCR and chat return clearly identified demo responses. To force demo behavior even when live Lumen credentials are configured, set `SAGIPREKORD_DEMO_MODE=true` in the PHP process environment or `.env`. Set it to `false` (or remove it) to allow live requests when both credentials and the corresponding OCR/chat endpoint are configured.
+Uploaded documents are sent to live Lumen OCR only when `LUMEN_OCR_URL`, `LUMEN_API_KEY`, and `LUMEN_API_SECRET` are configured and demo mode is off. If OCR is unavailable, the upload returns a clear error; it never substitutes sample text. Use the sample-document controls in the wizard for offline demonstrations.
 
-Configure live server-only values in `.env` using `LUMEN_API_KEY`, `LUMEN_API_SECRET`, `LUMEN_OCR_URL`, and `LUMEN_CHAT_URL`. Never put credentials in frontend code or expose the `.env` file through the web server.
+Without Lumen chat configuration, the assistant uses clearly identified demo guidance. To force demo behavior, set `SAGIPREKORD_DEMO_MODE=true` in the PHP process environment or `.env`. Set it to `false` (or remove it) to allow live requests when credentials and the corresponding endpoint are configured.
+
+Configure live server-only values in `.env` using `LUMEN_API_KEY`, `LUMEN_API_SECRET`, `LUMEN_OCR_URL`, and `LUMEN_CHAT_URL`. Use the OCR endpoint supplied by Lumen; do not guess the URL. Never put credentials in `.env.example` or frontend code, and do not expose `.env` through the web server.
 
 ## Workspace and language
 
