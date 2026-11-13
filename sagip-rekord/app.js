@@ -4,16 +4,159 @@
    easily explain their assigned module during judging.
    ========================================================= */
 
+function readPreference(key, fallback) {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function savePreference(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    showToast('This browser is blocking local preferences; the current choice will last for this visit.', 'warning');
+  }
+}
+
+// This local context is UI scaffolding only; it is not an authenticated identity.
 const AppState = {
   currentModule: 'dashboard',
-  currentLanguage: 'en',
+  session: null,
+  currentLanguage: readPreference('sagiprekord-language', 'en') === 'tl' ? 'tl' : 'en',
+  sidebarCollapsed: readPreference('sagiprekord-sidebar-collapsed', 'false') === 'true',
   currentStep: 1,
   recordsCache: [],
   currentChecklist: [],
-  currentEditDistance: 0
+  currentEditDistance: 0,
+  activeRequest: null,
+  step2Verified: false,
+  step3Complete: false
 };
 
-// Shared Toast Notification Helper
+const API_BASE_URL = document.querySelector('meta[name="api-base"]')?.content.trim() || './api.php';
+const originalTextNodes = new WeakMap();
+
+function apiUrl(action) {
+  const separator = API_BASE_URL.includes('?') ? '&' : '?';
+  return `${API_BASE_URL}${separator}action=${encodeURIComponent(action)}`;
+}
+
+async function requestApi(action, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  let response;
+  let data;
+  try {
+    response = await fetch(apiUrl(action), { ...options, signal: controller.signal });
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error(`The server returned an unreadable response (HTTP ${response.status}).`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('The server returned an unreadable response')) throw error;
+    if (error.name === 'AbortError') throw new Error('The request timed out. Check your connection and try again.');
+    throw new Error('Could not reach the SagipRekord server. Check your connection and try again.');
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok || !data || data.success !== true) {
+    throw new Error(data?.error || `Request failed (HTTP ${response.status}).`);
+  }
+  return data;
+}
+
+const AuthModule = {
+  currentUser: null,
+  permissions: {
+    resident: ['dashboard', 'wizard', 'vault'],
+    worker: ['dashboard', 'wizard', 'vault', 'impact'],
+    admin: ['dashboard', 'wizard', 'vault', 'impact', 'admin']
+  },
+
+  async login(email, password) {
+    const data = await requestApi('auth_login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: email, password })
+    });
+    this.currentUser = data.user;
+    return data.user;
+  },
+
+  async logout() {
+    await requestApi('auth_logout', { method: 'POST' });
+    this.currentUser = null;
+    AppState.session = null;
+    window.location.assign('./login.html');
+  },
+
+  async getCurrentUser() {
+    const data = await requestApi('auth_me');
+    this.currentUser = data.user;
+    AppState.session = data.user;
+    return data.user;
+  },
+
+  hasPermission(requiredRole) {
+    if (!this.currentUser) return false;
+    if (Array.isArray(requiredRole)) return requiredRole.includes(this.currentUser.role);
+    if (this.permissions[this.currentUser.role]?.includes(requiredRole)) return true;
+    return this.currentUser.role === requiredRole;
+  },
+
+  requireRole(allowedRoles) {
+    const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+    if (this.currentUser && roles.includes(this.currentUser.role)) return true;
+    showToast('You do not have permission to access this page.', 'error');
+    return false;
+  },
+
+  async requireAuth() {
+    try {
+      return await this.getCurrentUser();
+    } catch (error) {
+      this.currentUser = null;
+      AppState.session = null;
+      if (error.message === 'Please sign in to continue.' || error.message.includes('inactive')) {
+        window.location.replace('./login.html');
+        return null;
+      }
+      showToast(error.message || 'Could not verify your session.', 'error');
+      window.location.replace('./login.html');
+      return null;
+    }
+  },
+
+  defaultModule() {
+    return this.currentUser?.role === 'admin' ? 'admin' : this.currentUser?.role === 'worker' ? 'vault' : 'dashboard';
+  }
+};
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[char]);
+}
+
+function setButtonLoading(button, loading, label) {
+  if (loading) {
+    if (!button.dataset.originalHtml) button.dataset.originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.innerHTML = `<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><span>${escapeHtml(I18n.translate(label))}</span>`;
+  } else {
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    if (button.dataset.originalHtml) {
+      button.innerHTML = button.dataset.originalHtml;
+      delete button.dataset.originalHtml;
+    }
+  }
+}
+
 function showToast(message, type = 'info') {
   const colors = {
     success: 'bg-emerald-600 text-white',
@@ -25,7 +168,7 @@ function showToast(message, type = 'info') {
   toast.className = `toast-item pointer-events-auto px-4 py-2.5 rounded-xl shadow-lg text-xs font-bold flex items-center gap-2 ${colors[type] || colors.info}`;
   toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${message}</span>`;
   document.getElementById('toastContainer').appendChild(toast);
-  setTimeout(() => toast.remove(), 5000);
+  setTimeout(() => toast.remove(), 3200);
 }
 
 /* =========================================================
@@ -33,8 +176,13 @@ function showToast(message, type = 'info') {
    ========================================================= */
 const NavigationModule = {
   switchModule(moduleName) {
+    if (!['dashboard', 'wizard', 'vault', 'impact', 'admin'].includes(moduleName)) return;
+    if (!AuthModule.hasPermission(moduleName)) {
+      showToast('You do not have permission to access this page.', 'error');
+      moduleName = 'dashboard';
+    }
     AppState.currentModule = moduleName;
-    ['dashboard', 'wizard', 'vault', 'impact'].forEach(mod => {
+    ['dashboard', 'wizard', 'vault', 'impact', 'admin'].forEach(mod => {
       const section = document.getElementById(`module-${mod}`);
       if (section) section.classList.toggle('hidden', mod !== moduleName);
     });
@@ -55,14 +203,21 @@ const NavigationModule = {
     document.querySelectorAll('#sidebarToggle, #sidebarToggleDesktop').forEach(button => {
       button.setAttribute('aria-expanded', String(sidebarExpanded));
     });
-    const activeSection = document.getElementById(`module-${moduleName}`);
-    const activeHeading = moduleName === 'wizard'
-      ? document.querySelector('#module-wizard .wizard-panel:not(.hidden) h2')
-      : activeSection && activeSection.querySelector('h1, h2');
-    if (activeHeading) activeHeading.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 };
+
+function syncSidebarControls() {
+  const desktop = window.matchMedia('(min-width: 1025px)').matches;
+  const mobileOpen = document.body.classList.contains('sidebar-open');
+  const expanded = desktop ? !AppState.sidebarCollapsed : mobileOpen;
+  document.getElementById('appSidebar')?.setAttribute('aria-hidden', String(!desktop && !mobileOpen));
+  document.querySelectorAll('#sidebarToggle, #sidebarToggleDesktop').forEach(button => {
+    button.setAttribute('aria-expanded', String(expanded));
+    button.setAttribute('aria-label', I18n.translate(expanded ? 'Collapse navigation' : 'Expand navigation'));
+    button.querySelector('.burger-lines')?.classList.toggle('is-open', expanded);
+  });
+}
 
 const I18n = {
   translations: {
@@ -71,23 +226,15 @@ const I18n = {
       overview: 'Overview',
       documentWizard: 'Document wizard',
       recordsVault: 'Records vault',
-      communityHub: 'Community help',
-      communityHelpTitle: 'Where to get help',
-      communityHelpIntro: 'Choose the service that matches your need.',
-      communityHealthDesk: 'Barangay Palatiw Health & DRRMO Desk',
-      communityHealthHelp: 'Health needs, relief claims, and calamity certificates.',
-      communitySeniorDesk: 'Pasig CSWDO, OSCA, or Malasakit',
-      communitySeniorHelp: 'Senior ID replacement and medical assistance.',
+      communityHub: 'Community hub',
       needHelp: 'Need a hand?',
       helpCopy: 'Your community records are organized and ready to use.',
       learnMore: 'Learn more',
-      welcomeEyebrow: 'PALATIW DRRMO',
-      welcomeTitle: 'How can we help?',
+      welcomeEyebrow: 'YOUR COMMUNITY WORKSPACE',
+      welcomeTitle: 'Good morning, Palatiw.',
+      welcomeSubtitle: 'Let’s keep what matters within reach.',
       welcomeCopy: 'Scan, verify, and organize important community documents in one calm, secure place.',
-      startDocument: 'Scan a document',
-      scanHint: 'Take a photo or choose a file',
-      searchHint: 'Search your records',
-      workspaceSummary: 'Workspace summary',
+      startDocument: 'Start a document',
       savedRecords: 'Saved records',
       savedRecordsHint: 'In your community vault',
       verifiedRecords: 'Verified records',
@@ -107,7 +254,7 @@ const I18n = {
       reviewDetails: 'Review details',
       featureOrganizeTitle: 'Find it when it counts',
       featureOrganizeCopy: 'Keep verified records, helpful guidance, and next steps together in one vault.',
-      openVault: 'Find a saved record',
+      openVault: 'Open your vault',
       ctaEyebrow: 'A LITTLE MORE PEACE OF MIND',
       ctaTitle: 'Start with one important document.',
       ctaCopy: 'Your next helpful step is just a scan away.',
@@ -120,23 +267,15 @@ const I18n = {
       overview: 'Pangkalahatang-ideya',
       documentWizard: 'Gabay sa dokumento',
       recordsVault: 'Imbakan ng rekord',
-      communityHub: 'Tulong sa komunidad',
-      communityHelpTitle: 'Saan hihingi ng tulong?',
-      communityHelpIntro: 'Piliin ang serbisyong kailangan mo.',
-      communityHealthDesk: 'Health at DRRMO Desk ng Barangay Palatiw',
-      communityHealthHelp: 'Tulong pangkalusugan, ayuda, at sertipiko ng sakuna.',
-      communitySeniorDesk: 'Pasig CSWDO, OSCA, o Malasakit',
-      communitySeniorHelp: 'Pagpapalit ng senior ID at tulong medikal.',
+      communityHub: 'Sentro ng komunidad',
       needHelp: 'Kailangan ng tulong?',
       helpCopy: 'Maayos at handa nang gamitin ang mga rekord ng inyong komunidad.',
       learnMore: 'Alamin pa',
-      welcomeEyebrow: 'PALATIW DRRMO',
-      welcomeTitle: 'Paano ka namin matutulungan?',
+      welcomeEyebrow: 'WORKSPACE NG INYONG KOMUNIDAD',
+      welcomeTitle: 'Magandang umaga, Palatiw.',
+      welcomeSubtitle: 'Laging abot-kamay ang mahahalagang bagay.',
       welcomeCopy: 'I-scan, suriin, at ayusin ang mahahalagang dokumento ng komunidad sa iisang ligtas na lugar.',
-      startDocument: 'Mag-scan ng dokumento',
-      scanHint: 'Kumuha ng larawan o pumili ng file',
-      searchHint: 'Hanapin ang iyong mga rekord',
-      workspaceSummary: 'Buod ng workspace',
+      startDocument: 'Magsimula ng dokumento',
       savedRecords: 'Mga naka-save na rekord',
       savedRecordsHint: 'Nasa imbakan ng komunidad',
       verifiedRecords: 'Mga nasuring rekord',
@@ -156,7 +295,7 @@ const I18n = {
       reviewDetails: 'Suriin ang mga detalye',
       featureOrganizeTitle: 'Madaling hanapin kung kailangan',
       featureOrganizeCopy: 'Pagsama-samahin ang mga rekord, gabay, at susunod na hakbang sa iisang imbakan.',
-      openVault: 'Hanapin ang naka-save na rekord',
+      openVault: 'Buksan ang imbakan',
       ctaEyebrow: 'KAUNTING GINHAWA SA ISIP',
       ctaTitle: 'Magsimula sa isang mahalagang dokumento.',
       ctaCopy: 'Isang scan na lang ang susunod mong hakbang.',
@@ -168,7 +307,7 @@ const I18n = {
 
   setLanguage(language) {
     AppState.currentLanguage = this.translations[language] ? language : 'en';
-    const strings = this.translations[AppState.currentLanguage];
+    savePreference('sagiprekord-language', AppState.currentLanguage);
     document.documentElement.lang = AppState.currentLanguage === 'tl' ? 'tl' : 'en';
     document.querySelectorAll('[data-i18n]').forEach(element => {
       const key = element.dataset.i18n;
@@ -177,23 +316,25 @@ const I18n = {
       if (textNode) textNode.nodeValue = `${strings[key]} `;
       else element.textContent = strings[key];
     });
-    document.querySelectorAll('[data-i18n-aria-label]').forEach(element => {
-      const key = element.dataset.i18nAriaLabel;
-      if (strings[key]) element.setAttribute('aria-label', strings[key]);
-    });
     document.querySelectorAll('.language-option').forEach(button => {
       const selected = button.dataset.language === AppState.currentLanguage;
       button.classList.toggle('is-selected', selected);
       button.setAttribute('aria-pressed', String(selected));
     });
+    document.querySelectorAll('option').forEach(option => {
+      const englishText = option.dataset.englishText || option.textContent.trim();
+      option.dataset.englishText = englishText;
+      option.textContent = this.translate(englishText);
+    });
+    this.observeDynamicContent();
   }
 };
 
 function updateDashboardMetrics(records = AppState.recordsCache) {
-  const checklistCount = records.reduce((total, record) => total + (record.checklist || []).length, 0);
+  const checklistCount = records.reduce((total, record) => total + (Array.isArray(record.checklist) ? record.checklist.length : 0), 0);
   const metrics = {
     dashboardRecordCount: records.length,
-    dashboardVerifiedCount: records.length,
+    dashboardVerifiedCount: records.filter(record => Boolean(record.verified_ocr?.trim())).length,
     dashboardActionCount: checklistCount
   };
   Object.entries(metrics).forEach(([id, value]) => {
@@ -207,29 +348,34 @@ function updateDashboardMetrics(records = AppState.recordsCache) {
    ========================================================= */
 const WizardModule = {
   goToStep(stepNumber) {
-    // Guard: Encourage scanning or loading a paper before jumping to Step 2/3
+    if (![1, 2, 3].includes(stepNumber)) {
+      showToast('Choose a valid document step.', 'error');
+      return false;
+    }
+
     const hasText = document.getElementById('verifiedOcrText').value.trim().length > 0;
     if (stepNumber > 1 && !hasText) {
-      showToast('Add a document first.', 'warning');
+      showToast('Please upload a document or click a Demo Paper in Step 1 first!', 'warning');
       return;
     }
 
     AppState.currentStep = stepNumber;
+    document.getElementById('step1Check').classList.toggle('hidden', !hasText);
+    document.getElementById('step2Check').classList.toggle('hidden', !AppState.step2Verified);
+    document.getElementById('step3Check').classList.toggle('hidden', !AppState.step3Complete);
 
     [1, 2, 3].forEach(n => {
       const panel = document.getElementById(`wizardStep-${n}`);
       const btn = document.getElementById(`stepperBtn-${n}`);
-      const circle = btn.querySelector('.step-circle');
+      const circle = btn?.querySelector('.step-circle');
 
       if (panel) panel.classList.toggle('hidden', n !== stepNumber);
-      if (n === stepNumber) btn.setAttribute('aria-current', 'step');
-      else btn.removeAttribute('aria-current');
 
       btn.classList.remove('active-node', 'completed-node');
       if (n === stepNumber) {
         btn.classList.add('active-node');
         circle.className = 'step-circle w-9 h-9 rounded-xl bg-indigo-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow';
-      } else if (n < stepNumber || (n === 1 && hasText)) {
+      } else if ((n === 1 && hasText) || (n === 2 && AppState.step2Verified) || (n === 3 && AppState.step3Complete)) {
         btn.classList.add('completed-node');
         circle.className = 'step-circle w-9 h-9 rounded-xl bg-emerald-600 text-white font-black text-sm flex items-center justify-center shrink-0';
       } else {
@@ -241,6 +387,24 @@ const WizardModule = {
     const activeHeading = document.querySelector(`#wizardStep-${stepNumber} h2`);
     if (activeHeading) activeHeading.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    return true;
+  },
+
+  validateMetadata() {
+    const required = [
+      ['docType', 'Please select a document category.'],
+      ['residentName', 'Please enter the resident or household name.'],
+      ['referenceNo', 'Please enter a reference number (use N/A if none is shown).']
+    ];
+    for (const [id, message] of required) {
+      const field = document.getElementById(id);
+      if (!field.value.trim()) {
+        field.focus();
+        showToast(message, 'warning');
+        return false;
+      }
+    }
+    return true;
   },
 
   syncStickyContext() {
@@ -252,6 +416,7 @@ const WizardModule = {
   loadPreset(type) {
     document.getElementById('recordId').value = '';
     document.getElementById('correctionNote').value = '';
+    document.getElementById('residentAccountEmail').value = '';
 
     const samples = {
       form: {
@@ -284,19 +449,32 @@ const WizardModule = {
       }
     };
 
-    const chosen = samples[type] || samples.form;
+    const chosen = samples[type];
+    if (!chosen) {
+      showToast('That demo document is not available.', 'error');
+      return;
+    }
+    AppState.step2Verified = false;
+    AppState.step3Complete = false;
+    document.getElementById('step2Check').classList.add('hidden');
+    document.getElementById('step3Check').classList.add('hidden');
+    document.getElementById('verifiedAiAdvice').value = '';
+    AppState.currentChecklist = [];
+    documentInputClear();
+    document.getElementById('fileNameDisplay').textContent = chosen.title;
     document.getElementById('docType').value = chosen.cat;
     document.getElementById('priorityLevel').value = chosen.prio;
     document.getElementById('originalOcrStore').value = chosen.text;
     document.getElementById('rawOcrComparison').textContent = chosen.text;
     document.getElementById('verifiedOcrText').value = chosen.text;
 
-    document.getElementById('previewBox').innerHTML = `
+    const previewBox = document.getElementById('previewBox');
+    previewBox.innerHTML = `
       <div class="w-12 h-12 rounded-xl bg-white shadow-xs flex items-center justify-center text-2xl mb-2">
-        <i class="fa-solid ${chosen.icon}"></i>
+        <i class="fa-solid ${escapeHtml(chosen.icon)}"></i>
       </div>
       <p class="text-xs font-extrabold text-slate-700">${chosen.title}</p>
-      <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold mt-1">Sample document</span>
+      <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold mt-1">Scanned via Lumen OCR</span>
     `;
 
     OcrAndVerifyModule.autoExtractMetadata(chosen.text);
@@ -305,15 +483,25 @@ const WizardModule = {
 
     NavigationModule.switchModule('wizard');
     this.goToStep(2);
-    showToast('Sample ready. Check the document.', 'success');
+    showToast(`Step 1 Complete! Loaded ${chosen.title} into Step 2 for verification.`, 'success');
   }
 };
+
+function documentInputClear() {
+  const input = document.getElementById('documentInput');
+  if (input) input.value = '';
+  document.getElementById('fileNameDisplay').textContent = 'Drag & Drop Image or PDF Document Here';
+  document.getElementById('residentAccountEmail').value = '';
+}
 
 /* =========================================================
    MODULE 3: OCR & HUMAN VERIFICATION MODULE (Steps 1 & 2)
    ========================================================= */
 const OcrAndVerifyModule = {
   autoExtractMetadata(text) {
+    ['residentName', 'referenceNo', 'purokAddress', 'amountOrDate'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
     const nameMatch = text.match(/(?:Head of Household|Head of Family|Resident|Name|Account Name|Patient|Payee):\s*([^\n\r]+)/i);
     if (nameMatch) document.getElementById('residentName').value = nameMatch[1].trim();
 
@@ -355,7 +543,6 @@ const OcrAndVerifyModule = {
       if (!note.value) {
         note.value = `User reviewed & corrected ${AppState.currentEditDistance} OCR character(s)`;
       }
-      document.getElementById('step2Check').classList.remove('hidden');
     } else {
       badge.innerHTML = `<i class="fa-solid fa-user-check mr-1"></i>No changes`;
       badge.className = 'bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-bold text-[11px]';
@@ -369,6 +556,10 @@ const OcrAndVerifyModule = {
    ========================================================= */
 const AiChatAndChecklistModule = {
   async runLumenChat(promptText) {
+    if (AppState.activeRequest) {
+      showToast('Please wait for the current AI response to finish.', 'warning');
+      return;
+    }
     const docText = document.getElementById('verifiedOcrText').value.trim();
     if (!docText) {
       showToast('Check a document first.', 'warning');
@@ -377,10 +568,10 @@ const AiChatAndChecklistModule = {
 
     const aiStatus = document.getElementById('aiStatusText');
     const aiBox = document.getElementById('verifiedAiAdvice');
-    aiStatus.innerHTML = `<span class="text-purple-600 font-bold"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Working…</span>`;
+    aiStatus.innerHTML = `<span class="text-purple-600 font-bold"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Lumen AI Chat thinking...</span>`;
 
     try {
-      const res = await fetch('api.php?action=chat', {
+      const data = await requestApi('chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -393,9 +584,9 @@ const AiChatAndChecklistModule = {
       if (data.success) {
         aiBox.value = data.reply;
         this.extractTasksFromAiReply(data.reply);
-        aiStatus.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fa-solid fa-check mr-1"></i>Ready</span>`;
+        aiStatus.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fa-solid fa-check mr-1"></i>AI Explanation Ready</span>`;
         document.getElementById('step3Check').classList.remove('hidden');
-        showToast('Your explanation is ready.', 'success');
+        showToast('Lumen AI Chat generated explanation & checklist!', 'success');
       } else {
         showToast(data.error || 'AI Chat error', 'error');
       }
@@ -408,32 +599,32 @@ const AiChatAndChecklistModule = {
     const lines = replyText.split('\n');
     const tasks = [];
     lines.forEach(line => {
-      const match = line.trim().match(/^(?:\d+[\.\)]\s*|-\s*|\*\s*)(.+)/);
+      const match = line.trim().match(/^(?:\d+[\.\)]\s*|[-*•]\s*)(.+)/);
       if (match && match[1].length > 8) {
-        tasks.push({ text: match[1].replace(/\*\*/g, '').trim(), done: false });
+        const text = match[1].replace(/\*\*/g, '').trim();
+        if (!tasks.some(task => task.text === text)) tasks.push({ text, done: false });
       }
     });
-    if (tasks.length > 0) {
-      AppState.currentChecklist = tasks;
-      this.renderChecklist();
-    }
+    AppState.currentChecklist = tasks;
+    this.renderChecklist();
   },
 
   renderChecklist() {
     const container = document.getElementById('checklistContainer');
     if (!AppState.currentChecklist.length) {
-      container.innerHTML = `<p class="text-slate-600 italic py-1">Your tasks will appear here.</p>`;
+      container.innerHTML = `<p class="text-slate-400 italic py-1">Click "Generate Full Summary & Action Steps" above to build your interactive checklist.</p>`;
       return;
     }
     container.innerHTML = AppState.currentChecklist.map((item, idx) => `
-      <div class="task-row flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white border border-slate-200">
-        <label class="flex flex-1 items-center gap-3 cursor-pointer">
-          <input type="checkbox" data-task-index="${idx}" ${item.done ? 'checked' : ''} onchange="AiChatAndChecklistModule.toggleItem(${idx})" class="rounded text-emerald-600 focus:ring-0" />
-          <span class="checklist-task-text ${item.done ? 'line-through text-slate-500' : 'text-slate-800 font-semibold'}">${item.text}</span>
-        </label>
-        <button type="button" aria-label="Remove task ${idx + 1}" onclick="AiChatAndChecklistModule.removeItem(${idx})" class="text-slate-700 hover:text-rose-700 text-sm font-bold">&times;</button>
-      </div>
+      <label class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-emerald-400 transition">
+        <div class="flex items-center gap-2.5">
+          <input type="checkbox" ${item.done ? 'checked' : ''} onchange="AiChatAndChecklistModule.toggleItem(${idx})" class="rounded text-emerald-600 focus:ring-0" />
+          <span class="${item.done ? 'line-through text-slate-400' : 'text-slate-800 font-semibold'}">${item.text}</span>
+        </div>
+        <button type="button" onclick="AiChatAndChecklistModule.removeItem(${idx})" class="text-slate-300 hover:text-rose-500 text-sm font-bold">&times;</button>
+      </label>
     `).join('');
+    I18n.setLanguage(AppState.currentLanguage);
   },
 
   toggleItem(idx) {
@@ -467,7 +658,7 @@ const VaultModule = {
     document.getElementById('navVaultCount').textContent = records.length;
     document.getElementById('statUrgent').textContent = records.filter(r => r.priority_level === 'High Priority').length;
 
-    const query = document.getElementById('vaultSearch').value.toLowerCase();
+    const query = document.getElementById('vaultSearch').value.trim().toLowerCase();
     const catFilter = document.getElementById('vaultFilter').value;
     const prioFilter = document.getElementById('vaultPriorityFilter').value;
 
@@ -475,10 +666,10 @@ const VaultModule = {
       const matchesCat = catFilter === 'ALL' || r.doc_type === catFilter;
       const matchesPrio = prioFilter === 'ALL' || r.priority_level === prioFilter;
       const matchesText =
-        r.resident_name.toLowerCase().includes(query) ||
-        r.reference_no.toLowerCase().includes(query) ||
-        r.purok_address.toLowerCase().includes(query) ||
-        r.verified_ocr.toLowerCase().includes(query);
+        String(r.resident_name || '').toLowerCase().includes(query) ||
+        String(r.reference_no || '').toLowerCase().includes(query) ||
+        String(r.purok_address || '').toLowerCase().includes(query) ||
+        String(r.verified_ocr || '').toLowerCase().includes(query);
       return matchesCat && matchesPrio && matchesText;
     });
 
@@ -487,8 +678,9 @@ const VaultModule = {
       listEl.innerHTML = `
         <div class="md:col-span-2 text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300">
           <i class="fa-regular fa-folder-open text-3xl text-slate-300 mb-2"></i>
-          <p class="text-xs font-bold text-slate-500">No records found.</p>
+          <p class="text-xs font-bold text-slate-500">No matching verified records found.</p>
         </div>`;
+      I18n.setLanguage(AppState.currentLanguage);
       return;
     }
 
@@ -497,52 +689,65 @@ const VaultModule = {
         ? 'bg-rose-100 text-rose-700 border-rose-200'
         : (r.priority_level === 'Action Required' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200');
 
-      const doneCount = (r.checklist || []).filter(t => t.done).length;
-      const totalTasks = (r.checklist || []).length;
+      const checklist = Array.isArray(r.checklist) ? r.checklist : [];
+      const doneCount = checklist.filter(t => t.done).length;
+      const totalTasks = checklist.length;
 
       return `
         <article class="record-card bg-white dark-card border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
           <div class="space-y-3">
             <div class="flex items-center justify-between gap-2 mb-2">
-              <span class="record-category text-[11px] font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md">${r.doc_type}</span>
-              <span class="record-priority px-2.5 py-0.5 rounded-full font-bold border ${badgeColor}">${r.priority_level}</span>
+              <span class="text-[11px] font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md">${r.doc_type}</span>
+              <span class="text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${badgeColor}">${r.priority_level}</span>
             </div>
 
             <h3 class="font-extrabold text-base text-slate-800">${r.resident_name}</h3>
-            <p class="record-reference"><span>Reference:</span> <strong class="font-mono text-slate-700">${r.reference_no}</strong></p>
-            ${r.amount_or_date && r.amount_or_date !== 'N/A' ? `<p class="record-date">${r.amount_or_date}</p>` : ''}
+            <p class="text-xs text-slate-500 mt-0.5">
+              Ref: <strong class="font-mono text-slate-700">${r.reference_no}</strong>
+              ${r.amount_or_date && r.amount_or_date !== 'N/A' ? `• <span class="text-emerald-700 font-bold">${r.amount_or_date}</span>` : ''}
+            </p>
+            <p class="text-[11px] text-slate-400 mt-0.5"><i class="fa-solid fa-location-dot mr-1"></i>${r.purok_address}</p>
 
-            <details class="document-details record-details">
-              <summary>More details</summary>
-              <p><strong>Address:</strong> ${r.purok_address}</p>
-              <p><strong>Document text:</strong></p>
-              <pre class="record-text bg-slate-50 dark-subcard border border-slate-200 rounded-xl p-3 whitespace-pre-wrap">${r.verified_ocr}</pre>
-              <p><strong>Note:</strong> ${r.correction_note || 'None'}</p>
-              <p class="record-date">${r.id} • ${r.updated_at}</p>
-            </details>
+            <div class="mt-3 bg-slate-50 dark-subcard border border-slate-200 rounded-xl p-2.5 text-[11px] font-mono text-slate-600 line-clamp-2">${r.verified_ocr}</div>
           </div>
 
-          <div class="record-actions">
-            ${totalTasks > 0 ? `<span class="record-progress">${doneCount} of ${totalTasks} tasks done</span>` : ''}
-            <div class="flex items-center gap-2">
-              <button type="button" onclick="VaultModule.openRecord('${r.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-xl">Open</button>
-              <button type="button" aria-label="Delete record ${r.id}" title="Delete record" onclick="VaultModule.deleteRecord('${r.id}')" class="delete-record-button text-rose-700 hover:text-rose-900 font-semibold">
-                <i class="fa-regular fa-trash-can" aria-hidden="true"></i>
-              </button>
+          <div class="mt-4 pt-3 border-t border-slate-100 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-1 text-[11px]">
+              <span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-semibold">
+                <i class="fa-solid fa-user-check mr-1"></i>${r.correction_note}
+              </span>
+              ${totalTasks > 0 ? `<span class="text-emerald-700 font-bold"><i class="fa-solid fa-list-check mr-1"></i>${doneCount}/${totalTasks} steps done</span>` : ''}
+            </div>
+
+            <div class="flex items-center justify-between text-xs pt-1">
+              <span class="text-[11px] text-slate-400 font-mono">${r.id} • ${r.updated_at}</span>
+              <div class="flex items-center gap-3">
+                <button onclick="VaultModule.openRecord('${r.id}')" class="font-extrabold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                  <i class="fa-solid fa-pen-to-square"></i> Inspect / Edit
+                </button>
+                <button onclick="VaultModule.deleteRecord('${r.id}')" class="text-rose-500 hover:text-rose-700 font-semibold">
+                  <i class="fa-regular fa-trash-can"></i>
+                </button>
+              </div>
             </div>
           </div>
-        </article>
+        </div>
       `;
     }).join('');
+    I18n.setLanguage(AppState.currentLanguage);
   },
 
   openRecord(id) {
     const rec = AppState.recordsCache.find(r => r.id === id);
-    if (!rec) return;
+    if (!rec) {
+      showToast('That record could not be found. Refresh the vault and try again.', 'error');
+      return;
+    }
     document.getElementById('recordId').value = rec.id;
     document.getElementById('docType').value = rec.doc_type;
     document.getElementById('priorityLevel').value = rec.priority_level;
     document.getElementById('residentName').value = rec.resident_name;
+    document.getElementById('residentAccountEmail').value = rec.owner_email || '';
     document.getElementById('referenceNo').value = rec.reference_no;
     document.getElementById('amountOrDate').value = rec.amount_or_date || '';
     document.getElementById('purokAddress').value = rec.purok_address;
@@ -551,7 +756,12 @@ const VaultModule = {
     document.getElementById('verifiedOcrText').value = rec.verified_ocr;
     document.getElementById('verifiedAiAdvice').value = rec.verified_advice || '';
     document.getElementById('correctionNote').value = rec.correction_note || '';
-    AppState.currentChecklist = rec.checklist || [];
+    AppState.currentChecklist = Array.isArray(rec.checklist) ? rec.checklist.map(item => ({ text: String(item.text || ''), done: Boolean(item.done) })) : [];
+    AppState.step2Verified = false;
+    AppState.step3Complete = Boolean(rec.verified_advice);
+    document.getElementById('step2Check').classList.add('hidden');
+    document.getElementById('step3Check').classList.toggle('hidden', !AppState.step3Complete);
+    documentInputClear();
 
     AiChatAndChecklistModule.renderChecklist();
     OcrAndVerifyModule.updateDiffAudit();
@@ -561,7 +771,7 @@ const VaultModule = {
   },
 
   async deleteRecord(id) {
-    if (!confirm('Delete this record?')) return;
+    if (!confirm('Remove this record from the Barangay Vault?')) return;
     const res = await fetch('api.php?action=delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -571,7 +781,7 @@ const VaultModule = {
     if (data.success) {
       AppState.recordsCache = data.records;
       this.renderVault();
-      showToast('Record deleted.', 'info');
+      showToast('Record deleted from vault', 'info');
     }
   }
 };
@@ -582,34 +792,12 @@ const VaultModule = {
 document.addEventListener('DOMContentLoaded', () => {
   const documentInput = document.getElementById('documentInput');
   const dropZone = document.getElementById('dropZone');
-  const cameraModal = document.getElementById('cameraModal');
-  const cameraVideo = document.getElementById('cameraVideo');
-  const cameraCanvas = document.getElementById('cameraCanvas');
-  let selectedDocument = null;
-  let cameraStream = null;
-  let capturedPhoto = null;
-  let cameraSession = 0;
 
-  function stopCamera() {
-    cameraSession++;
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(track => track.stop());
-      cameraStream = null;
-    }
-    cameraVideo.srcObject = null;
-  }
-
-  function closeCamera() {
-    stopCamera();
-    capturedPhoto = null;
-    cameraModal.classList.add('hidden');
-    cameraModal.classList.remove('flex');
-    document.getElementById('openCameraBtn').focus();
-  }
-
-  const updateSidebarAria = () => {
+  const toggleSidebar = () => {
     const isMobile = window.matchMedia('(max-width: 700px)').matches;
     const isTablet = window.matchMedia('(min-width: 701px) and (max-width: 1024px)').matches;
+    const className = isMobile ? 'sidebar-open' : (isTablet ? 'sidebar-expanded' : 'sidebar-collapsed');
+    document.body.classList.toggle(className);
     const isExpanded = isMobile
       ? document.body.classList.contains('sidebar-open')
       : (isTablet
@@ -619,31 +807,11 @@ document.addEventListener('DOMContentLoaded', () => {
       button.setAttribute('aria-expanded', String(isExpanded));
     });
   };
-  const toggleSidebar = () => {
-    const isMobile = window.matchMedia('(max-width: 700px)').matches;
-    const isTablet = window.matchMedia('(min-width: 701px) and (max-width: 1024px)').matches;
-    const className = isMobile ? 'sidebar-open' : (isTablet ? 'sidebar-expanded' : 'sidebar-collapsed');
-    document.body.classList.toggle(className);
-    updateSidebarAria();
-    if (isMobile && document.body.classList.contains('sidebar-open')) {
-      document.querySelector('.sidebar-link').focus();
-    }
-  };
   document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
   document.getElementById('sidebarToggleDesktop').addEventListener('click', toggleSidebar);
   document.getElementById('sidebarBackdrop').addEventListener('click', () => {
     document.body.classList.remove('sidebar-open');
-    updateSidebarAria();
-    document.getElementById('sidebarToggle').focus();
-  });
-  window.addEventListener('resize', updateSidebarAria);
-  updateSidebarAria();
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
-      document.body.classList.remove('sidebar-open');
-      updateSidebarAria();
-      document.getElementById('sidebarToggle').focus();
-    }
+    document.getElementById('sidebarToggle').setAttribute('aria-expanded', 'false');
   });
   document.querySelectorAll('.language-option').forEach(button => {
     button.addEventListener('click', () => I18n.setLanguage(button.dataset.language));
@@ -654,7 +822,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // File Preview handler
   function handleFilePreview(file) {
     if (!file) return;
-    selectedDocument = file;
     document.getElementById('fileNameDisplay').textContent = `Selected: ${file.name}`;
     const previewBox = document.getElementById('previewBox');
     if (file.type.startsWith('image/')) {
@@ -680,118 +847,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  document.getElementById('openCameraBtn').addEventListener('click', async () => {
-    const cameraStatus = document.getElementById('cameraStatus');
-    const captureButton = document.getElementById('capturePhotoBtn');
-    capturedPhoto = null;
-    cameraVideo.classList.remove('hidden');
-    cameraCanvas.classList.add('hidden');
-    captureButton.disabled = true;
-    captureButton.classList.remove('hidden');
-    document.getElementById('retakePhotoBtn').classList.add('hidden');
-    document.getElementById('usePhotoBtn').classList.add('hidden');
-    cameraStatus.textContent = 'Starting camera…';
-    cameraModal.classList.remove('hidden');
-    cameraModal.classList.add('flex');
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      cameraStatus.textContent = 'Camera access is not available in this browser. Use HTTPS or localhost, or upload a photo instead.';
-      showToast('Camera access is unavailable. Use HTTPS or localhost, or upload a photo.', 'error');
-      return;
-    }
-
-    const session = ++cameraSession;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: 'environment' } }
-      });
-      if (session !== cameraSession) {
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-
-      cameraStream = stream;
-      cameraVideo.srcObject = stream;
-      await cameraVideo.play();
-      if (session === cameraSession) {
-        captureButton.disabled = false;
-        cameraStatus.textContent = 'Camera ready. Center the document and capture when it is clear.';
-      }
-    } catch (error) {
-      if (session !== cameraSession) return;
-      stopCamera();
-      const message = error.name === 'NotAllowedError'
-        ? 'Camera permission was denied. Allow camera access in your browser settings, or upload a photo instead.'
-        : 'Could not start the camera. Check that a camera is connected and try again, or upload a photo.';
-      cameraStatus.textContent = message;
-      showToast(message, 'error');
-    }
-  });
-
-  document.getElementById('capturePhotoBtn').addEventListener('click', () => {
-    if (!cameraVideo.videoWidth || !cameraVideo.videoHeight) {
-      showToast('The camera is not ready yet. Please wait a moment and try again.', 'warning');
-      return;
-    }
-
-    cameraCanvas.width = cameraVideo.videoWidth;
-    cameraCanvas.height = cameraVideo.videoHeight;
-    cameraCanvas.getContext('2d').drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
-    cameraCanvas.toBlob(blob => {
-      if (!blob) {
-        showToast('Could not capture the photo. Please try again.', 'error');
-        return;
-      }
-      capturedPhoto = new File([blob], `sagiprekord-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
-      cameraVideo.classList.add('hidden');
-      cameraCanvas.classList.remove('hidden');
-      document.getElementById('cameraStatus').textContent = 'Photo captured. Retake it or use it to scan your document.';
-      document.getElementById('capturePhotoBtn').classList.add('hidden');
-      document.getElementById('retakePhotoBtn').classList.remove('hidden');
-      document.getElementById('usePhotoBtn').classList.remove('hidden');
-    }, 'image/jpeg', 0.92);
-  });
-
-  document.getElementById('retakePhotoBtn').addEventListener('click', () => {
-    capturedPhoto = null;
-    cameraVideo.classList.remove('hidden');
-    cameraCanvas.classList.add('hidden');
-    document.getElementById('cameraStatus').textContent = 'Camera ready. Center the document and capture when it is clear.';
-    document.getElementById('capturePhotoBtn').classList.remove('hidden');
-    document.getElementById('retakePhotoBtn').classList.add('hidden');
-    document.getElementById('usePhotoBtn').classList.add('hidden');
-  });
-
-  document.getElementById('usePhotoBtn').addEventListener('click', () => {
-    if (!capturedPhoto) return;
-    handleFilePreview(capturedPhoto);
-    closeCamera();
-    showToast('Photo added. Select “Read document” to continue.', 'success');
-  });
-
-  document.getElementById('closeCameraModal').addEventListener('click', closeCamera);
-  cameraModal.addEventListener('click', event => {
-    if (event.target === cameraModal) closeCamera();
-  });
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !cameraModal.classList.contains('hidden')) closeCamera();
-  });
-
   // Step 1: OCR Form Submit -> Automatically Advances to Step 2
   document.getElementById('ocrForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!selectedDocument) {
-      showToast('Choose a photo or PDF first.', 'warning');
+    if (!documentInput.files.length) {
+      showToast('Please select an image/PDF file or click one of the 4 Demo Papers below!', 'warning');
       return;
     }
 
     const ocrBtn = document.getElementById('ocrBtn');
     const formData = new FormData();
-    formData.append('document', selectedDocument, selectedDocument.name);
+    formData.append('document', documentInput.files[0]);
 
     ocrBtn.disabled = true;
-    ocrBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Reading document…</span>`;
+    ocrBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Reading Document with Lumen OCR...</span>`;
 
     try {
       const res = await fetch('api.php?action=ocr', { method: 'POST', body: formData });
@@ -805,7 +874,7 @@ document.addEventListener('DOMContentLoaded', () => {
         OcrAndVerifyModule.updateDiffAudit();
         document.getElementById('step1Check').classList.remove('hidden');
         WizardModule.goToStep(2);
-        showToast('Text ready. Check it for mistakes.', 'success');
+        showToast('Step 1 Complete! Please verify or correct the extracted text in Step 2.', 'success');
       } else {
         showToast(data.error || 'OCR scan failed', 'error');
       }
@@ -813,7 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Error connecting to api.php backend', 'error');
     } finally {
       ocrBtn.disabled = false;
-      ocrBtn.innerHTML = `<i class="fa-solid fa-file-lines"></i> <span>Read document</span> <i class="fa-solid fa-arrow-right ml-1"></i>`;
+      ocrBtn.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> <span>Scan Document with Lumen OCR & Continue to Step 2</span> <i class="fa-solid fa-arrow-right ml-1"></i>`;
     }
   });
 
@@ -835,7 +904,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (orig) {
       document.getElementById('verifiedOcrText').value = orig;
       OcrAndVerifyModule.updateDiffAudit();
-      showToast('Original text restored.', 'info');
+      showToast('Restored raw unedited OCR text', 'warning');
     }
   });
 
@@ -904,27 +973,23 @@ document.addEventListener('DOMContentLoaded', () => {
       AppState.recordsCache = data.records;
       document.getElementById('recordId').value = data.record.id;
       VaultModule.renderVault();
-      showToast('Record saved.', 'success');
+      showToast(`Saved verified record ${data.record.id}! Opening Digital Vault...`, 'success');
       setTimeout(() => NavigationModule.switchModule('vault'), 600);
     }
   });
 
   // Reset Form Button
   document.getElementById('clearFormBtn').addEventListener('click', () => {
-    selectedDocument = null;
-    documentInput.value = '';
-    document.getElementById('fileNameDisplay').textContent = 'Drag & Drop Image or PDF Document Here';
     ['recordId', 'originalOcrStore', 'residentName', 'referenceNo', 'amountOrDate', 'purokAddress', 'verifiedOcrText', 'verifiedAiAdvice', 'correctionNote'].forEach(id => {
       document.getElementById(id).value = '';
     });
-    document.getElementById('previewBox').innerHTML = '<i class="fa-regular fa-file-lines text-3xl text-slate-300 mb-2"></i><p class="text-xs font-bold text-slate-500">No document yet</p>';
     ['step1Check', 'step2Check', 'step3Check'].forEach(id => document.getElementById(id).classList.add('hidden'));
     AppState.currentChecklist = [];
     AppState.currentEditDistance = 0;
     AiChatAndChecklistModule.renderChecklist();
     OcrAndVerifyModule.updateDiffAudit();
     WizardModule.goToStep(1);
-    showToast('Ready for a new document.', 'info');
+    showToast('Wizard reset to Step 1', 'info');
   });
 
   // Printable Slip Modal
@@ -946,7 +1011,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <pre class="bg-slate-50 p-2.5 rounded-xl border border-slate-200 font-mono whitespace-pre-wrap text-[11px]">${document.getElementById('verifiedOcrText').value}</pre>
       </div>
       <div>
-        <strong class="block mb-1 text-slate-700">Explanation:</strong>
+        <strong class="block mb-1 text-slate-700">Lumen AI Chat Guidance:</strong>
         <div class="bg-purple-50 p-2.5 rounded-xl border border-purple-200 whitespace-pre-wrap">${document.getElementById('verifiedAiAdvice').value || 'N/A'}</div>
       </div>
       <div>
@@ -984,7 +1049,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    showToast('Records exported.', 'success');
+    showToast('Exported Barangay Vault to CSV!', 'success');
   });
 
   // Initial App Boot

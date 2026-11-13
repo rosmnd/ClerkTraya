@@ -1,4 +1,8 @@
 .env
 records.json
+records.json.lock
+users.json
+users.json.lock
+audit.jsonl
 uploads/
 .DS_Store

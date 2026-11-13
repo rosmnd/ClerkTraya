@@ -1,8 +1,20 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/auth.php';
+startAuthSession();
+$authUsersFile = __DIR__ . '/users.json';
+ensureDemoAccounts($authUsersFile);
+if (!refreshSessionUser($authUsersFile)) {
+    header('Location: ./login.html');
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="api-base" content="./api.php" />
   <title>SagipRekord | Community records, ready when it matters</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -11,7 +23,7 @@
 <body class="app-shell">
 
   <!-- TOAST NOTIFICATION CONTAINER -->
-  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none" aria-live="polite" aria-relevant="additions"></div>
 
   <!-- =========================================================
        TOP APPLICATION HEADER & MODULE NAVIGATION BAR
@@ -32,37 +44,64 @@
       <button id="sidebarToggleDesktop" class="icon-button desktop-menu-button" type="button" aria-label="Collapse navigation" aria-expanded="true" aria-controls="appSidebar">
         <span class="burger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
       </button>
+      <button id="logoutButton" class="icon-button" type="button" aria-label="Sign out" title="Sign out">
+        <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+      </button>
     </div>
   </header>
 
   <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
-  <aside id="appSidebar" class="app-sidebar" aria-label="Main navigation">
+  <aside id="appSidebar" class="app-sidebar" aria-label="Main navigation" aria-hidden="false">
     <p class="sidebar-caption" data-i18n="workspace">WORKSPACE</p>
     <nav class="sidebar-navigation">
-      <button type="button" class="sidebar-link is-active" data-module="dashboard" data-i18n-aria-label="overview" aria-label="Overview" onclick="NavigationModule.switchModule('dashboard')">
+      <button type="button" class="sidebar-link is-active" data-module="dashboard" onclick="NavigationModule.switchModule('dashboard')">
         <i class="fa-solid fa-house"></i><span data-i18n="overview">Overview</span>
       </button>
-      <button type="button" class="sidebar-link" data-module="wizard" data-i18n-aria-label="documentWizard" aria-label="Document wizard" onclick="NavigationModule.switchModule('wizard')">
+      <button type="button" class="sidebar-link" data-module="wizard" onclick="NavigationModule.switchModule('wizard')">
         <i class="fa-solid fa-wand-magic-sparkles"></i><span data-i18n="documentWizard">Document wizard</span>
       </button>
-      <button type="button" class="sidebar-link" data-module="vault" data-i18n-aria-label="recordsVault" aria-label="Records vault" onclick="NavigationModule.switchModule('vault')">
+      <button type="button" class="sidebar-link" data-module="vault" onclick="NavigationModule.switchModule('vault')">
         <i class="fa-solid fa-box-archive"></i><span data-i18n="recordsVault">Records vault</span><span id="navVaultCount" class="sidebar-count">0</span>
       </button>
-      <button type="button" class="sidebar-link" data-module="impact" data-i18n-aria-label="communityHub" aria-label="Community help" onclick="NavigationModule.switchModule('impact')">
-        <i class="fa-solid fa-handshake-angle"></i><span data-i18n="communityHub">Community help</span>
+      <button type="button" class="sidebar-link" data-module="impact" onclick="NavigationModule.switchModule('impact')">
+        <i class="fa-solid fa-handshake-angle"></i><span data-i18n="communityHub">Community hub</span>
+      </button>
+      <button type="button" class="sidebar-link" data-module="admin" aria-label="Administration" onclick="NavigationModule.switchModule('admin')">
+        <i class="fa-solid fa-user-shield"></i><span>Administration</span>
       </button>
     </nav>
     <div class="sidebar-profile">
-      <span class="profile-avatar">P</span>
-      <span><strong>Palatiw DRRMO</strong><small>Community workspace</small></span>
+      <span class="profile-avatar" id="sessionAvatar">U</span>
+      <span><strong id="sessionDisplayName">SagipRekord User</strong><small id="sessionRole">Resident</small></span>
     </div>
   </aside>
 
   <main id="module-dashboard" class="app-module dashboard-module">
     <section class="dashboard-welcome compact-welcome" aria-labelledby="dashboardTitle">
       <div>
-        <p class="eyebrow" data-i18n="welcomeEyebrow">PALATIW DRRMO</p>
-        <h1 id="dashboardTitle" tabindex="-1" data-i18n="welcomeTitle">How can we help?</h1>
+        <p class="eyebrow"><span class="eyebrow-dot"></span><span data-i18n="welcomeEyebrow">YOUR COMMUNITY WORKSPACE</span></p>
+        <h1><span data-i18n="welcomeTitle">Good morning, Palatiw.</span><br><span class="heading-muted" data-i18n="welcomeSubtitle">Let’s keep what matters within reach.</span></h1>
+        <p class="welcome-copy" data-i18n="welcomeCopy">Scan, verify, and organize important community documents in one calm, secure place.</p>
+        <button type="button" class="primary-button" onclick="NavigationModule.switchModule('wizard'); WizardModule.goToStep(1)">
+          <i class="fa-solid fa-plus"></i><span data-i18n="startDocument">Start a document</span><i class="fa-solid fa-arrow-right button-arrow"></i>
+        </button>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <span class="art-orbit orbit-one"></span><span class="art-orbit orbit-two"></span>
+        <span class="art-sparkle sparkle-one">✦</span><span class="art-sparkle sparkle-two">✧</span>
+        <div class="globe-card">
+          <svg viewBox="0 0 170 170" role="img" aria-label="">
+            <defs><linearGradient id="globeFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#dfe9ff"/></linearGradient></defs>
+            <circle cx="85" cy="85" r="67" fill="url(#globeFill)"/>
+            <ellipse cx="85" cy="85" rx="31" ry="67" fill="none" stroke="#A58AE8" stroke-width="2" opacity=".65"/>
+            <ellipse cx="85" cy="85" rx="59" ry="24" fill="none" stroke="#4378E4" stroke-width="2" opacity=".4"/>
+            <path d="M21 85h128M85 19v132" stroke="#4378E4" stroke-width="1.5" opacity=".25"/>
+            <path d="M51 54c9-8 19-9 24-3l-5 10 10 5-6 10-13-3-7 11-11-3-7-12 8-15zM101 91l15-8 14 8-4 14-13 8-9-9zM66 110l12 6 6 18-12 4-9-12z" fill="#A58AE8" opacity=".8"/>
+            <circle cx="128" cy="53" r="7" fill="#3364E1"/>
+          </svg>
+          <span class="globe-label"><i class="fa-solid fa-location-dot"></i> PALATIW, PASIG</span>
+        </div>
+        <div class="floating-note"><span class="note-check"><i class="fa-solid fa-check"></i></span><span><strong>Records protected</strong><small>Ready when you need them</small></span></div>
       </div>
     </section>
 
@@ -303,6 +342,11 @@
               <div>
                 <label class="block text-[11px] font-bold text-slate-600 mb-1" for="residentName">Person or company</label>
                 <input type="text" id="residentName" placeholder="Name" class="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-xs font-bold outline-none" />
+              </div>
+
+              <div id="residentAccountLink" class="worker-admin-only">
+                <label class="block text-[11px] font-bold text-slate-600 mb-1" for="residentAccountEmail">Link to resident account (optional)</label>
+                <input type="email" id="residentAccountEmail" placeholder="resident@example.org" class="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-xs outline-none" />
               </div>
 
               <div>
@@ -589,7 +633,7 @@
         </button>
       </div>
     </div>
-  </div>
+  </main>
 
   <!-- PRINTABLE BARANGAY ACTION SLIP MODAL -->
   <div id="slipModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
@@ -617,5 +661,6 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="app-init.js"></script>
 </body>
 </html>
