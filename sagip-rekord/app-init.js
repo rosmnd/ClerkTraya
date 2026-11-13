@@ -123,9 +123,156 @@ function initializeSidebar() {
   });
 }
 
+function initializeCamera(documentInput) {
+  const modal = document.getElementById('cameraModal');
+  const video = document.getElementById('cameraVideo');
+  const canvas = document.getElementById('cameraCanvas');
+  const openButton = document.getElementById('openCameraBtn');
+  if (!modal || !video || !canvas || !openButton) return;
+
+  const status = document.getElementById('cameraStatus');
+  const captureButton = document.getElementById('capturePhotoBtn');
+  const retakeButton = document.getElementById('retakePhotoBtn');
+  const useButton = document.getElementById('usePhotoBtn');
+  const closeButton = document.getElementById('closeCameraModal');
+  let stream = null;
+  let capturedPhoto = null;
+  let requestId = 0;
+
+  function stopCamera() {
+    requestId++;
+    stream?.getTracks().forEach(track => track.stop());
+    stream = null;
+    video.srcObject = null;
+  }
+
+  function closeCamera() {
+    stopCamera();
+    capturedPhoto = null;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    openButton.focus();
+  }
+
+  openButton.addEventListener('click', async () => {
+    stopCamera();
+    const currentRequest = ++requestId;
+    capturedPhoto = null;
+    video.classList.remove('hidden');
+    canvas.classList.add('hidden');
+    captureButton.disabled = true;
+    captureButton.classList.remove('hidden');
+    retakeButton.classList.add('hidden');
+    useButton.classList.add('hidden');
+    status.textContent = 'Starting camera…';
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    closeButton.focus();
+
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+      status.textContent = 'Camera access is not available. Use HTTPS or localhost, or upload a photo instead.';
+      showToast('Camera access is unavailable. Use HTTPS or localhost, or upload a photo.', 'error');
+      return;
+    }
+
+    try {
+      const activeStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' } }
+      });
+      if (currentRequest !== requestId) {
+        activeStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+      stream = activeStream;
+      video.srcObject = activeStream;
+      await video.play();
+      if (currentRequest === requestId) {
+        captureButton.disabled = false;
+        status.textContent = 'Camera ready. Center the document and capture when it is clear.';
+        captureButton.focus();
+      }
+    } catch (error) {
+      if (currentRequest !== requestId) return;
+      stopCamera();
+      const message = error.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow access in browser settings, or upload a photo instead.'
+        : 'Could not start the camera. Check that a camera is connected and try again, or upload a photo.';
+      status.textContent = message;
+      showToast(message, 'error');
+    }
+  });
+
+  captureButton.addEventListener('click', () => {
+    if (!video.videoWidth || !video.videoHeight) {
+      showToast('The camera is not ready yet. Please wait a moment and try again.', 'warning');
+      return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      showToast('Could not capture the photo. Please try again.', 'error');
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(blob => {
+      if (!blob) {
+        showToast('Could not capture the photo. Please try again.', 'error');
+        return;
+      }
+      capturedPhoto = new File([blob], `sagiprekord-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      video.classList.add('hidden');
+      canvas.classList.remove('hidden');
+      status.textContent = 'Photo captured. Retake it or use it to scan your document.';
+      captureButton.classList.add('hidden');
+      retakeButton.classList.remove('hidden');
+      useButton.classList.remove('hidden');
+      retakeButton.focus();
+    }, 'image/jpeg', 0.92);
+  });
+
+  retakeButton.addEventListener('click', () => {
+    capturedPhoto = null;
+    video.classList.remove('hidden');
+    canvas.classList.add('hidden');
+    status.textContent = 'Camera ready. Center the document and capture when it is clear.';
+    captureButton.classList.remove('hidden');
+    retakeButton.classList.add('hidden');
+    useButton.classList.add('hidden');
+    captureButton.focus();
+  });
+
+  useButton.addEventListener('click', () => {
+    if (!capturedPhoto) return;
+    try {
+      const transfer = new DataTransfer();
+      transfer.items.add(capturedPhoto);
+      documentInput.files = transfer.files;
+      documentInput.dispatchEvent(new Event('change', { bubbles: true }));
+      closeCamera();
+      showToast('Photo added. Select “Read document” to continue.', 'success');
+    } catch {
+      showToast('This browser could not attach the photo. Please upload it from your device instead.', 'error');
+    }
+  });
+
+  closeButton.addEventListener('click', closeCamera);
+  modal.addEventListener('click', event => {
+    if (event.target === modal) closeCamera();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeCamera();
+  });
+  window.addEventListener('pagehide', stopCamera, { once: true });
+}
+
 function initializeWizard() {
   const documentInput = document.getElementById('documentInput');
   const dropZone = document.getElementById('dropZone');
+  initializeCamera(documentInput);
 
   documentInput.addEventListener('change', () => {
     const file = documentInput.files?.[0];
