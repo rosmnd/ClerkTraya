@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#FFFFFF" />
+  <meta name="api-base" content="./api.php" />
+  <title>Sign in | SagipRekord</title>
+  <link rel="stylesheet" href="auth.css" />
+</head>
+<body>
+  <div class="auth-page">
+    <span class="auth-decoration auth-decoration--one" aria-hidden="true"></span>
+    <span class="auth-decoration auth-decoration--two" aria-hidden="true"></span>
+
+    <header class="auth-header">
+      <a class="auth-brand" href="./login.html" aria-label="SagipRekord sign in">
+        <span class="auth-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 3.25 20 6v5.5c0 4.7-3.1 7.7-8 9.25-4.9-1.55-8-4.55-8-9.25V6l8-2.75Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M8.2 12.2 10.6 14.5l5.2-5.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span>
+          <span class="auth-brand-name">SagipRekord</span>
+          <span class="auth-brand-tagline">Community records, ready when it matters</span>
+        </span>
+      </a>
+    </header>
+
+    <main class="auth-main">
+      <section class="auth-intro" aria-labelledby="welcomeHeading">
+        <p class="auth-eyebrow">A calmer way to stay organized</p>
+        <h1 id="welcomeHeading">Welcome back.</h1>
+        <p>Sign in to find important community records and continue where you left off.</p>
+        <div class="auth-reassurance">
+          <span class="auth-reassurance-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 3.25 20 6v5.5c0 4.7-3.1 7.7-8 9.25-4.9-1.55-8-4.55-8-9.25V6l8-2.75Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              <path d="M8.2 12.2 10.6 14.5l5.2-5.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span>
+            <strong>Made for your community</strong>
+            <p>Keep verified documents, helpful guidance, and next steps together.</p>
+          </span>
+        </div>
+      </section>
+
+      <section class="auth-card" aria-labelledby="formHeading">
+        <div class="auth-card-header">
+          <h2 id="formHeading">Sign in</h2>
+          <p>Enter your account details to continue.</p>
+        </div>
+        <form class="auth-form" data-auth-form data-auth-action="login" novalidate>
+          <div class="auth-field">
+            <label for="identity">Email or username</label>
+            <input id="identity" name="identity" type="text" autocomplete="username" placeholder="you@example.com" required aria-required="true" />
+          </div>
+          <div class="auth-field">
+            <label for="password">Password</label>
+            <div class="auth-input-wrap">
+              <input class="has-toggle" id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required aria-required="true" aria-describedby="passwordHelp" />
+              <button class="auth-password-toggle" type="button" data-password-toggle aria-controls="password" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
+            <span id="passwordHelp" class="auth-brand-tagline">Use at least 8 characters.</span>
+          </div>
+          <div class="auth-options">
+            <label class="auth-checkbox" for="rememberMe">
+              <input id="rememberMe" name="rememberMe" type="checkbox" />
+              <span>Remember me</span>
+            </label>
+          </div>
+          <p class="auth-message" id="formMessage" aria-live="polite"></p>
+          <button class="auth-submit" type="submit">
+            <span>Sign in</span>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </form>
+        <p class="auth-switch">Don’t have an account? <a href="./signup.html">Create one</a></p>
+      </section>
+    </main>
+
+    <footer class="auth-footer">© 2026 SagipRekord · Built for stronger, more prepared communities.</footer>
+  </div>
+  <script src="auth.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#FFFFFF" />
+  <meta name="api-base" content="./api.php" />
+  <title>Create account | SagipRekord</title>
+  <link rel="stylesheet" href="auth.css" />
+</head>
+<body>
+  <div class="auth-page">
+    <span class="auth-decoration auth-decoration--one" aria-hidden="true"></span>
+    <span class="auth-decoration auth-decoration--two" aria-hidden="true"></span>
+
+    <header class="auth-header">
+      <a class="auth-brand" href="./login.html" aria-label="SagipRekord sign in">
+        <span class="auth-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 3.25 20 6v5.5c0 4.7-3.1 7.7-8 9.25-4.9-1.55-8-4.55-8-9.25V6l8-2.75Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+            <path d="M8.2 12.2 10.6 14.5l5.2-5.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span>
+          <span class="auth-brand-name">SagipRekord</span>
+          <span class="auth-brand-tagline">Community records, ready when it matters</span>
+        </span>
+      </a>
+    </header>
+
+    <main class="auth-main">
+      <section class="auth-intro" aria-labelledby="welcomeHeading">
+        <p class="auth-eyebrow">A calmer way to stay organized</p>
+        <h1 id="welcomeHeading">Let’s get started.</h1>
+        <p>Create an account to keep important community information organized and within reach.</p>
+        <div class="auth-reassurance">
+          <span class="auth-reassurance-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path d="M12 3.25 20 6v5.5c0 4.7-3.1 7.7-8 9.25-4.9-1.55-8-4.55-8-9.25V6l8-2.75Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              <path d="M8.2 12.2 10.6 14.5l5.2-5.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span>
+            <strong>Made for your community</strong>
+            <p>Keep verified documents, helpful guidance, and next steps together.</p>
+          </span>
+        </div>
+      </section>
+
+      <section class="auth-card" aria-labelledby="formHeading">
+        <div class="auth-card-header">
+          <h2 id="formHeading">Create your account</h2>
+          <p>Fill in your details to get started.</p>
+        </div>
+        <form class="auth-form" data-auth-form data-auth-action="signup" novalidate>
+          <div class="auth-field">
+            <label for="fullName">Full name</label>
+            <input id="fullName" name="fullName" type="text" autocomplete="name" placeholder="Your full name" minlength="2" maxlength="120" required aria-required="true" />
+          </div>
+          <div class="auth-field">
+            <label for="email">Email address</label>
+            <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" maxlength="254" required aria-required="true" />
+          </div>
+          <div class="auth-reassurance">
+            <span class="auth-reassurance-icon" aria-hidden="true">R</span>
+            <span><strong>Resident account</strong><p>Staff and administrator access is assigned by an administrator.</p></span>
+          </div>
+          <div class="auth-field">
+            <label for="password">Password</label>
+            <div class="auth-input-wrap">
+              <input class="has-toggle" id="password" name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" minlength="8" maxlength="128" required aria-required="true" />
+              <button class="auth-password-toggle" type="button" data-password-toggle aria-controls="password" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
+          </div>
+          <div class="auth-field">
+            <label for="confirmPassword">Confirm password</label>
+            <div class="auth-input-wrap">
+              <input class="has-toggle" id="confirmPassword" name="confirmPassword" type="password" autocomplete="new-password" placeholder="Enter your password again" minlength="8" maxlength="128" required aria-required="true" />
+              <button class="auth-password-toggle" type="button" data-password-toggle aria-controls="confirmPassword" aria-label="Show password" aria-pressed="false">Show</button>
+            </div>
+          </div>
+          <p class="auth-message" id="formMessage" aria-live="polite"></p>
+          <button class="auth-submit" type="submit">
+            <span>Create account</span>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </form>
+        <p class="auth-switch">Already have an account? <a href="./login.html">Sign in</a></p>
+      </section>
+    </main>
+
+    <footer class="auth-footer">© 2026 SagipRekord · Built for stronger, more prepared communities.</footer>
+  </div>
+  <script src="auth.js" defer></script>
+</body>
+</html>
