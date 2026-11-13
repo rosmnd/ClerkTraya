@@ -165,8 +165,94 @@ function refreshSessionUser(string $usersFile): bool
     return true;
 }
 
-function auditEvent(string $auditFile, array $user, string $event, array $details = []): void
+function auditEncryptionKey(): ?string
 {
+    $encodedKey = $_ENV['SAGIPREKORD_AUDIT_KEY'] ?? $_SERVER['SAGIPREKORD_AUDIT_KEY'] ?? getenv('SAGIPREKORD_AUDIT_KEY');
+    if (!is_string($encodedKey) || trim($encodedKey) === '') {
+        return null;
+    }
+
+    $key = base64_decode(trim($encodedKey), true);
+    return is_string($key) && strlen($key) === 32 ? $key : null;
+}
+
+function encryptAuditEntry(array $entry, string $key): ?array
+{
+    $json = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($json === false) {
+        return null;
+    }
+
+    try {
+        $iv = random_bytes(12);
+    } catch (Throwable $error) {
+        return null;
+    }
+
+    $tag = '';
+    $ciphertext = openssl_encrypt($json, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, 'SagipRekord Audit Log v1', 16);
+    if (!is_string($ciphertext) || strlen($tag) !== 16) {
+        return null;
+    }
+
+    return [
+        'version' => 1,
+        'algorithm' => 'AES-256-GCM',
+        'iv' => base64_encode($iv),
+        'ciphertext' => base64_encode($ciphertext . $tag),
+    ];
+}
+
+function auditStoreHeader(): string
+{
+    return '{"_format":"sagiprekord-audit-v1"}';
+}
+
+function rewriteAuditStore($handle, array $rows): bool
+{
+    $contents = auditStoreHeader() . PHP_EOL;
+    foreach ($rows as $row) {
+        $line = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($line === false) {
+            return false;
+        }
+        $contents .= $line . PHP_EOL;
+    }
+
+    return rewind($handle)
+        && ftruncate($handle, 0)
+        && fwrite($handle, $contents) === strlen($contents)
+        && fflush($handle);
+}
+
+function readLegacyAuditRows(string $contents, string $key): ?array
+{
+    $rows = [];
+    foreach (preg_split('/\r\n|\n|\r/', $contents) ?: [] as $line) {
+        if (trim($line) === '') {
+            continue;
+        }
+        $entry = json_decode($line, true);
+        if (!is_array($entry)) {
+            return null;
+        }
+        $encrypted = encryptAuditEntry($entry, $key);
+        if ($encrypted === null) {
+            return null;
+        }
+        $rows[] = $encrypted;
+    }
+    return $rows;
+}
+
+function logAction(string $auditFile, array $user, string $event, array $details = []): void
+{
+    $key = auditEncryptionKey();
+    if ($key === null) {
+        error_log('SagipRekord audit logging skipped: configure a valid SAGIPREKORD_AUDIT_KEY.');
+        return;
+    }
+
     $entry = [
         'timestamp' => date(DATE_ATOM),
         'actor_id' => (string) ($user['id'] ?? 'system'),
@@ -175,38 +261,114 @@ function auditEvent(string $auditFile, array $user, string $event, array $detail
         'event' => $event,
         'details' => $details,
     ];
-    $line = json_encode($entry, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-    $handle = fopen($auditFile, 'ab');
-    if ($handle === false) {
-        respond(['success' => false, 'error' => 'The audit log is unavailable. Check server file permissions.'], 500);
+    $encrypted = encryptAuditEntry($entry, $key);
+    if ($encrypted === null) {
+        error_log('SagipRekord audit logging failed: entry encryption was unavailable.');
+        return;
     }
-    try {
-        if (!flock($handle, LOCK_EX) || fwrite($handle, $line . PHP_EOL) === false) {
-            respond(['success' => false, 'error' => 'Could not write the audit log.'], 500);
+
+    $line = json_encode($encrypted, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    $handle = fopen($auditFile, 'c+b');
+    if ($line === false || $handle === false) {
+        if (is_resource($handle)) {
+            fclose($handle);
         }
+        error_log('SagipRekord audit logging failed: the audit store could not be opened.');
+        return;
+    }
+
+    try {
+        if (!flock($handle, LOCK_EX)) {
+            error_log('SagipRekord audit logging failed: the audit store could not be locked.');
+            return;
+        }
+
+        rewind($handle);
+        $firstLine = fgets($handle);
+        if ($firstLine === false || trim($firstLine) !== auditStoreHeader()) {
+            rewind($handle);
+            $contents = stream_get_contents($handle);
+            $legacyRows = $contents === false ? null : readLegacyAuditRows($contents, $key);
+            if ($legacyRows === null || !rewriteAuditStore($handle, $legacyRows)) {
+                error_log('SagipRekord audit logging failed: legacy entries could not be encrypted.');
+                return;
+            }
+        }
+
+        if (fseek($handle, 0, SEEK_END) !== 0 || fwrite($handle, $line . PHP_EOL) !== strlen($line . PHP_EOL) || !fflush($handle)) {
+            error_log('SagipRekord audit logging failed: the encrypted entry could not be written.');
+        }
+    } catch (Throwable $error) {
+        error_log('SagipRekord audit logging failed: encryption or storage error.');
     } finally {
-        flock($handle, LOCK_UN);
+        if (is_resource($handle)) {
+            flock($handle, LOCK_UN);
+        }
         fclose($handle);
     }
 }
 
-function readAuditEvents(string $auditFile): array
+function auditEvent(string $auditFile, array $user, string $event, array $details = []): void
 {
-    if (!is_file($auditFile)) {
-        return [];
-    }
-    $lines = file($auditFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if ($lines === false) {
-        respond(['success' => false, 'error' => 'Could not read the audit log.'], 500);
-    }
-    $events = [];
-    foreach (array_slice($lines, -500) as $line) {
-        $event = json_decode($line, true);
-        if (is_array($event)) {
-            $events[] = $event;
+    logAction($auditFile, $user, $event, $details);
+}
+
+function readAuditEvents(string $auditFile, string $key): array
+{
+    $handle = fopen($auditFile, 'c+b');
+    if ($handle === false || !flock($handle, LOCK_EX)) {
+        if (is_resource($handle)) {
+            fclose($handle);
         }
+        respond(['success' => false, 'error' => 'Could not open the audit log for secure reading.'], 500);
     }
-    return array_reverse($events);
+
+    $events = [];
+    $error = '';
+    try {
+        rewind($handle);
+        $contents = stream_get_contents($handle);
+        if ($contents === false) {
+            $error = 'Could not read the audit log.';
+        } elseif ($contents === '') {
+            if (!rewriteAuditStore($handle, [])) {
+                $error = 'Could not initialize the encrypted audit log.';
+            }
+        } else {
+            $lines = preg_split('/\r\n|\n|\r/', $contents) ?: [];
+            $hasHeader = trim((string) array_shift($lines)) === auditStoreHeader();
+            if (!$hasHeader) {
+                $legacyRows = readLegacyAuditRows($contents, $key);
+                if ($legacyRows === null || !rewriteAuditStore($handle, $legacyRows)) {
+                    $error = 'The existing audit log could not be encrypted. No entries were returned.';
+                } else {
+                    $events = $legacyRows;
+                }
+            } else {
+                foreach ($lines as $line) {
+                    if (trim($line) === '') {
+                        continue;
+                    }
+                    $row = json_decode($line, true);
+                    if (!is_array($row) || ($row['version'] ?? null) !== 1 || ($row['algorithm'] ?? '') !== 'AES-256-GCM') {
+                        $error = 'The encrypted audit log contains an invalid entry.';
+                        break;
+                    }
+                    $events[] = $row;
+                }
+            }
+        }
+    } catch (Throwable $exception) {
+        $error = 'The audit log could not be securely read.';
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+
+    if ($error !== '') {
+        respond(['success' => false, 'error' => $error], 500);
+    }
+    return array_reverse(array_slice($events, -500));
 }
 
 function handleAuthAction(string $action, string $method, string $usersFile, string $auditFile): bool
@@ -419,7 +581,15 @@ function handleAuthAction(string $action, string $method, string $usersFile, str
         if ($method !== 'GET') {
             respond(['success' => false, 'error' => 'Use GET to view audit events.'], 405);
         }
-        respond(['success' => true, 'events' => readAuditEvents($auditFile)]);
+        $key = auditEncryptionKey();
+        if ($key === null) {
+            respond(['success' => false, 'error' => 'Audit encryption is not configured. Set SAGIPREKORD_AUDIT_KEY to a base64-encoded 32-byte key.'], 503);
+        }
+        respond([
+            'success' => true,
+            'events' => readAuditEvents($auditFile, $key),
+            'key' => base64_encode($key),
+        ]);
     }
 
     return false;

@@ -27,6 +27,24 @@ Without Lumen credentials and endpoint URLs, OCR and chat return clearly identif
 
 Configure live server-only values in `.env` using `LUMEN_API_KEY`, `LUMEN_API_SECRET`, `LUMEN_OCR_URL`, and `LUMEN_CHAT_URL`. Never put credentials in frontend code or expose the `.env` file through the web server.
 
+## Audit log encryption
+
+The PHP server encrypts each complete audit event with AES-256-GCM before writing it to `audit.jsonl`. The Admin-only `admin_audit` endpoint returns encrypted entries and the configured key over the authenticated connection; the Admin page decrypts them with the browser Web Crypto API. The imported key is non-extractable and remains in page memory only. Workers and Residents cannot request the key or audit entries.
+
+Generate a unique 32-byte key (do not reuse a password or commit the result):
+
+```sh
+php -r "echo base64_encode(random_bytes(32)), PHP_EOL;"
+```
+
+Add the generated value to the ignored, server-only `.env` file:
+
+```dotenv
+SAGIPREKORD_AUDIT_KEY=replace-with-generated-base64-value
+```
+
+Restart the PHP server after changing the environment. The Admin configuration panel reports whether encryption is enabled without showing the key. Existing plaintext audit entries are migrated to encrypted envelopes on the first write or Admin audit-log read. Back up the key separately: losing it makes encrypted audit entries permanently unreadable. Use HTTPS in deployment; browser access to the key is restricted to Admin sessions but still depends on a trusted connection and application origin.
+
 ## Workspace and language
 
 The responsive workspace opens on a dashboard with live vault statistics, quick actions, and a collapsible navigation sidebar. The document wizard, records vault, and community hub remain available from the sidebar. Use the ENG / TAG switch to preview the English and Tagalog UI; add future translations to `I18n.translations` in `app.js`.
@@ -73,3 +91,4 @@ The PHP API enforces session and role checks even if a user bypasses the hidden 
 7. **Vault utilities:** search and filter records, export a CSV, and open/close and print the action slip.
 8. **Authentication and role navigation:** sign in with each demo account and confirm it opens the Resident, Worker, or Admin experience. Confirm each sidebar only shows that role's modules, public registration creates a Resident, and logout returns to the sign-in page. While signed in as a Worker or Resident, try opening an Admin-only module and confirm access is denied.
 9. **Server-side authorization:** while signed in as Worker or Resident, request the Admin user and audit APIs and confirm they return `403`. As Admin, create, edit, and deactivate a temporary account; confirm the deactivated account cannot sign in and that the Admin account cannot demote or deactivate itself. As Resident, confirm the vault only contains that resident's records and cannot update or delete another resident's record. With the built-in server router, direct requests to `users.json`, `records.json`, and `audit.jsonl` must return `404`.
+10. **Audit encryption:** configure `SAGIPREKORD_AUDIT_KEY`, sign in as Admin, and confirm recent events render after decryption. Inspect `audit.jsonl` and confirm entries contain only the version, algorithm, IV, and ciphertext (plus the non-sensitive format marker), not event names or account details. Confirm Worker/Resident `admin_audit` requests return `403`; change a test ciphertext and confirm the Admin page shows a decryption error without breaking account management.

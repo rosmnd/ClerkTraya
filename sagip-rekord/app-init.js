@@ -501,10 +501,7 @@ function initializeAdmin() {
   };
 
   async function loadAdminData() {
-    const [usersData, auditData] = await Promise.all([
-      requestApi('admin_users'),
-      requestApi('admin_audit'),
-    ]);
+    const usersData = await requestApi('admin_users');
     document.getElementById('adminUsersList').innerHTML = usersData.users.map(user => `
       <article class="admin-user-row">
         <div><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)} · ${escapeHtml(roleLabel(user.role))}${user.active ? '' : ' · Inactive'}</span></div>
@@ -514,14 +511,21 @@ function initializeAdmin() {
         </div>
       </article>
     `).join('') || '<p class="admin-empty">No accounts found.</p>';
-    document.getElementById('adminAuditList').innerHTML = auditData.events.map(event => `
-      <article class="admin-audit-row">
-        <strong>${escapeHtml(event.event)}</strong>
-        <span>${escapeHtml(event.actor_name)} · ${escapeHtml(event.actor_role)} · ${escapeHtml(event.timestamp)}</span>
-        ${event.details?.record_id ? `<span>Record: ${escapeHtml(event.details.record_id)}</span>` : ''}
-        ${event.details?.user_id ? `<span>Account: ${escapeHtml(event.details.user_id)}</span>` : ''}
-      </article>
-    `).join('') || '<p class="admin-empty">No activity recorded yet.</p>';
+    const auditList = document.getElementById('adminAuditList');
+    auditList.innerHTML = '<p class="admin-empty" role="status">Decrypting protected activity...</p>';
+    try {
+      const events = await AuditLog.getRecentLogs(50);
+      auditList.innerHTML = events.map(event => `
+        <article class="admin-audit-row">
+          <strong>${escapeHtml(event.event)}</strong>
+          <span>${escapeHtml(event.actor_name)} · ${escapeHtml(event.actor_role)} · ${escapeHtml(event.timestamp)}</span>
+          ${event.details?.record_id ? `<span>Record: ${escapeHtml(event.details.record_id)}</span>` : ''}
+          ${event.details?.user_id ? `<span>Account: ${escapeHtml(event.details.user_id)}</span>` : ''}
+        </article>
+      `).join('') || '<p class="admin-empty">No activity recorded yet.</p>';
+    } catch (error) {
+      auditList.innerHTML = `<p class="admin-empty auth-message--error" role="alert">${escapeHtml(error.message || 'Could not decrypt audit activity.')}</p>`;
+    }
   }
 
   document.getElementById('adminResetUser').addEventListener('click', resetForm);
@@ -617,6 +621,7 @@ function initializeAdmin() {
       <div class="admin-config-item"><strong>OCR service</strong><span>${data.ocr_configured ? 'Configured' : 'Demo fallback'}</span></div>
       <div class="admin-config-item"><strong>AI chat</strong><span>${data.chat_configured ? 'Configured' : 'Demo fallback'}</span></div>
       <div class="admin-config-item"><strong>Record storage</strong><span>${data.storage_writable ? 'Writable' : 'Check server permissions'}</span></div>
+      <div class="admin-config-item"><strong>Audit encryption</strong><span>${data.audit_encryption_configured ? 'AES-256-GCM enabled' : 'Set SAGIPREKORD_AUDIT_KEY'}</span></div>
     `;
   }
 

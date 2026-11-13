@@ -135,6 +135,70 @@ const AuthModule = {
   }
 };
 
+const EncryptionService = {
+  additionalData: new TextEncoder().encode('SagipRekord Audit Log v1'),
+
+  async importAuditKey(encodedKey) {
+    if (!window.crypto?.subtle) {
+      throw new Error('Secure audit-log decryption is unavailable in this browser. Use a modern browser over HTTPS or localhost.');
+    }
+
+    let rawKey;
+    try {
+      rawKey = Uint8Array.from(atob(encodedKey), character => character.charCodeAt(0));
+    } catch {
+      throw new Error('The audit encryption key from the server is invalid.');
+    }
+    if (rawKey.byteLength !== 32) throw new Error('The audit encryption key must be 32 bytes.');
+
+    return window.crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['decrypt']);
+  },
+
+  async decryptAuditEntry(envelope, key) {
+    if (envelope?.version !== 1 || envelope.algorithm !== 'AES-256-GCM') {
+      throw new Error('The audit log contains an unsupported encrypted entry.');
+    }
+
+    try {
+      const iv = Uint8Array.from(atob(envelope.iv), character => character.charCodeAt(0));
+      const ciphertext = Uint8Array.from(atob(envelope.ciphertext), character => character.charCodeAt(0));
+      const plaintext = await window.crypto.subtle.decrypt({
+        name: 'AES-GCM',
+        iv,
+        additionalData: this.additionalData,
+        tagLength: 128
+      }, key, ciphertext);
+      return JSON.parse(new TextDecoder().decode(plaintext));
+    } catch {
+      throw new Error('Audit log decryption failed. Check the server key configuration and stored log integrity.');
+    }
+  }
+};
+
+const AuditLog = {
+  async getLogs(limit = Number.MAX_SAFE_INTEGER) {
+    if (!AuthModule.hasPermission('admin')) {
+      throw new Error('Only administrators can view audit logs.');
+    }
+
+    const response = await requestApi('admin_audit');
+    let key;
+    try {
+      key = await EncryptionService.importAuditKey(response.key);
+      const entries = response.events.slice(0, limit);
+      return await Promise.all(entries.map(entry => EncryptionService.decryptAuditEntry(entry, key)));
+    } catch (error) {
+      if (error instanceof Error && /audit|browser/i.test(error.message)) throw error;
+      throw new Error('Audit log decryption failed. Check the server key configuration and stored log integrity.');
+    }
+  },
+
+  async getRecentLogs(limit = 50) {
+    if (!Number.isInteger(limit) || limit < 0) throw new Error('The audit log limit must be a non-negative integer.');
+    return this.getLogs(limit);
+  }
+};
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'

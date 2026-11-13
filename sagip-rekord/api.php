@@ -174,6 +174,7 @@ if ($action === 'admin_config') {
         'lumen_credentials_available' => $hasLumenCredentials,
         'ocr_configured' => $ocrUrl !== '' && $hasLumenCredentials,
         'chat_configured' => $chatUrl !== '' && $hasLumenCredentials,
+        'audit_encryption_configured' => auditEncryptionKey() !== null,
         'storage_writable' => (is_file($dbFile) ? is_writable($dbFile) : is_writable(dirname($dbFile))),
     ]);
 }
