@@ -25,7 +25,7 @@ function showToast(message, type = 'info') {
   toast.className = `toast-item pointer-events-auto px-4 py-2.5 rounded-xl shadow-lg text-xs font-bold flex items-center gap-2 ${colors[type] || colors.info}`;
   toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> <span>${message}</span>`;
   document.getElementById('toastContainer').appendChild(toast);
-  setTimeout(() => toast.remove(), 3200);
+  setTimeout(() => toast.remove(), 5000);
 }
 
 /* =========================================================
@@ -55,6 +55,11 @@ const NavigationModule = {
     document.querySelectorAll('#sidebarToggle, #sidebarToggleDesktop').forEach(button => {
       button.setAttribute('aria-expanded', String(sidebarExpanded));
     });
+    const activeSection = document.getElementById(`module-${moduleName}`);
+    const activeHeading = moduleName === 'wizard'
+      ? document.querySelector('#module-wizard .wizard-panel:not(.hidden) h2')
+      : activeSection && activeSection.querySelector('h1, h2');
+    if (activeHeading) activeHeading.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 };
@@ -66,15 +71,23 @@ const I18n = {
       overview: 'Overview',
       documentWizard: 'Document wizard',
       recordsVault: 'Records vault',
-      communityHub: 'Community hub',
+      communityHub: 'Community help',
+      communityHelpTitle: 'Where to get help',
+      communityHelpIntro: 'Choose the service that matches your need.',
+      communityHealthDesk: 'Barangay Palatiw Health & DRRMO Desk',
+      communityHealthHelp: 'Health needs, relief claims, and calamity certificates.',
+      communitySeniorDesk: 'Pasig CSWDO, OSCA, or Malasakit',
+      communitySeniorHelp: 'Senior ID replacement and medical assistance.',
       needHelp: 'Need a hand?',
       helpCopy: 'Your community records are organized and ready to use.',
       learnMore: 'Learn more',
-      welcomeEyebrow: 'YOUR COMMUNITY WORKSPACE',
-      welcomeTitle: 'Good morning, Palatiw.',
-      welcomeSubtitle: 'Let’s keep what matters within reach.',
+      welcomeEyebrow: 'PALATIW DRRMO',
+      welcomeTitle: 'How can we help?',
       welcomeCopy: 'Scan, verify, and organize important community documents in one calm, secure place.',
-      startDocument: 'Start a document',
+      startDocument: 'Scan a document',
+      scanHint: 'Take a photo or choose a file',
+      searchHint: 'Search your records',
+      workspaceSummary: 'Workspace summary',
       savedRecords: 'Saved records',
       savedRecordsHint: 'In your community vault',
       verifiedRecords: 'Verified records',
@@ -94,7 +107,7 @@ const I18n = {
       reviewDetails: 'Review details',
       featureOrganizeTitle: 'Find it when it counts',
       featureOrganizeCopy: 'Keep verified records, helpful guidance, and next steps together in one vault.',
-      openVault: 'Open your vault',
+      openVault: 'Find a saved record',
       ctaEyebrow: 'A LITTLE MORE PEACE OF MIND',
       ctaTitle: 'Start with one important document.',
       ctaCopy: 'Your next helpful step is just a scan away.',
@@ -107,15 +120,23 @@ const I18n = {
       overview: 'Pangkalahatang-ideya',
       documentWizard: 'Gabay sa dokumento',
       recordsVault: 'Imbakan ng rekord',
-      communityHub: 'Sentro ng komunidad',
+      communityHub: 'Tulong sa komunidad',
+      communityHelpTitle: 'Saan hihingi ng tulong?',
+      communityHelpIntro: 'Piliin ang serbisyong kailangan mo.',
+      communityHealthDesk: 'Health at DRRMO Desk ng Barangay Palatiw',
+      communityHealthHelp: 'Tulong pangkalusugan, ayuda, at sertipiko ng sakuna.',
+      communitySeniorDesk: 'Pasig CSWDO, OSCA, o Malasakit',
+      communitySeniorHelp: 'Pagpapalit ng senior ID at tulong medikal.',
       needHelp: 'Kailangan ng tulong?',
       helpCopy: 'Maayos at handa nang gamitin ang mga rekord ng inyong komunidad.',
       learnMore: 'Alamin pa',
-      welcomeEyebrow: 'WORKSPACE NG INYONG KOMUNIDAD',
-      welcomeTitle: 'Magandang umaga, Palatiw.',
-      welcomeSubtitle: 'Laging abot-kamay ang mahahalagang bagay.',
+      welcomeEyebrow: 'PALATIW DRRMO',
+      welcomeTitle: 'Paano ka namin matutulungan?',
       welcomeCopy: 'I-scan, suriin, at ayusin ang mahahalagang dokumento ng komunidad sa iisang ligtas na lugar.',
-      startDocument: 'Magsimula ng dokumento',
+      startDocument: 'Mag-scan ng dokumento',
+      scanHint: 'Kumuha ng larawan o pumili ng file',
+      searchHint: 'Hanapin ang iyong mga rekord',
+      workspaceSummary: 'Buod ng workspace',
       savedRecords: 'Mga naka-save na rekord',
       savedRecordsHint: 'Nasa imbakan ng komunidad',
       verifiedRecords: 'Mga nasuring rekord',
@@ -135,7 +156,7 @@ const I18n = {
       reviewDetails: 'Suriin ang mga detalye',
       featureOrganizeTitle: 'Madaling hanapin kung kailangan',
       featureOrganizeCopy: 'Pagsama-samahin ang mga rekord, gabay, at susunod na hakbang sa iisang imbakan.',
-      openVault: 'Buksan ang imbakan',
+      openVault: 'Hanapin ang naka-save na rekord',
       ctaEyebrow: 'KAUNTING GINHAWA SA ISIP',
       ctaTitle: 'Magsimula sa isang mahalagang dokumento.',
       ctaCopy: 'Isang scan na lang ang susunod mong hakbang.',
@@ -155,6 +176,10 @@ const I18n = {
       const textNode = Array.from(element.childNodes).find(node => node.nodeType === Node.TEXT_NODE);
       if (textNode) textNode.nodeValue = `${strings[key]} `;
       else element.textContent = strings[key];
+    });
+    document.querySelectorAll('[data-i18n-aria-label]').forEach(element => {
+      const key = element.dataset.i18nAriaLabel;
+      if (strings[key]) element.setAttribute('aria-label', strings[key]);
     });
     document.querySelectorAll('.language-option').forEach(button => {
       const selected = button.dataset.language === AppState.currentLanguage;
@@ -185,7 +210,7 @@ const WizardModule = {
     // Guard: Encourage scanning or loading a paper before jumping to Step 2/3
     const hasText = document.getElementById('verifiedOcrText').value.trim().length > 0;
     if (stepNumber > 1 && !hasText) {
-      showToast('Please upload a document or click a Demo Paper in Step 1 first!', 'warning');
+      showToast('Add a document first.', 'warning');
       return;
     }
 
@@ -197,6 +222,8 @@ const WizardModule = {
       const circle = btn.querySelector('.step-circle');
 
       if (panel) panel.classList.toggle('hidden', n !== stepNumber);
+      if (n === stepNumber) btn.setAttribute('aria-current', 'step');
+      else btn.removeAttribute('aria-current');
 
       btn.classList.remove('active-node', 'completed-node');
       if (n === stepNumber) {
@@ -211,6 +238,8 @@ const WizardModule = {
     });
 
     this.syncStickyContext();
+    const activeHeading = document.querySelector(`#wizardStep-${stepNumber} h2`);
+    if (activeHeading) activeHeading.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   },
 
@@ -267,7 +296,7 @@ const WizardModule = {
         <i class="fa-solid ${chosen.icon}"></i>
       </div>
       <p class="text-xs font-extrabold text-slate-700">${chosen.title}</p>
-      <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold mt-1">Scanned via Lumen OCR</span>
+      <span class="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold mt-1">Sample document</span>
     `;
 
     OcrAndVerifyModule.autoExtractMetadata(chosen.text);
@@ -276,7 +305,7 @@ const WizardModule = {
 
     NavigationModule.switchModule('wizard');
     this.goToStep(2);
-    showToast(`Step 1 Complete! Loaded ${chosen.title} into Step 2 for verification.`, 'success');
+    showToast('Sample ready. Check the document.', 'success');
   }
 };
 
@@ -320,18 +349,18 @@ const OcrAndVerifyModule = {
     const note = document.getElementById('correctionNote');
 
     if (AppState.currentEditDistance > 0) {
-      badge.innerHTML = `<i class="fa-solid fa-user-pen mr-1"></i>${AppState.currentEditDistance} chars fixed`;
+      badge.innerHTML = `<i class="fa-solid fa-user-pen mr-1"></i>${AppState.currentEditDistance} corrections`;
       badge.className = 'bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-bold text-[11px]';
-      indicator.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fa-solid fa-check-double mr-1"></i>Edited & Verified by Human</span>`;
+      indicator.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fa-solid fa-check-double mr-1"></i>Corrected</span>`;
       if (!note.value) {
         note.value = `User reviewed & corrected ${AppState.currentEditDistance} OCR character(s)`;
       }
       document.getElementById('step2Check').classList.remove('hidden');
     } else {
-      badge.innerHTML = `<i class="fa-solid fa-user-check mr-1"></i>0 edits made`;
+      badge.innerHTML = `<i class="fa-solid fa-user-check mr-1"></i>No changes`;
       badge.className = 'bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full font-bold text-[11px]';
     }
-    document.getElementById('statEdits').textContent = `${AppState.currentEditDistance} chars fixed`;
+    document.getElementById('statEdits').textContent = `${AppState.currentEditDistance} corrections`;
   }
 };
 
@@ -342,13 +371,13 @@ const AiChatAndChecklistModule = {
   async runLumenChat(promptText) {
     const docText = document.getElementById('verifiedOcrText').value.trim();
     if (!docText) {
-      showToast('Please scan or verify a document first!', 'warning');
+      showToast('Check a document first.', 'warning');
       return;
     }
 
     const aiStatus = document.getElementById('aiStatusText');
     const aiBox = document.getElementById('verifiedAiAdvice');
-    aiStatus.innerHTML = `<span class="text-purple-600 font-bold"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Lumen AI Chat thinking...</span>`;
+    aiStatus.innerHTML = `<span class="text-purple-600 font-bold"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Working…</span>`;
 
     try {
       const res = await fetch('api.php?action=chat', {
@@ -364,9 +393,9 @@ const AiChatAndChecklistModule = {
       if (data.success) {
         aiBox.value = data.reply;
         this.extractTasksFromAiReply(data.reply);
-        aiStatus.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fa-solid fa-check mr-1"></i>AI Explanation Ready</span>`;
+        aiStatus.innerHTML = `<span class="text-emerald-600 font-bold"><i class="fa-solid fa-check mr-1"></i>Ready</span>`;
         document.getElementById('step3Check').classList.remove('hidden');
-        showToast('Lumen AI Chat generated explanation & checklist!', 'success');
+        showToast('Your explanation is ready.', 'success');
       } else {
         showToast(data.error || 'AI Chat error', 'error');
       }
@@ -393,28 +422,37 @@ const AiChatAndChecklistModule = {
   renderChecklist() {
     const container = document.getElementById('checklistContainer');
     if (!AppState.currentChecklist.length) {
-      container.innerHTML = `<p class="text-slate-400 italic py-1">Click "Generate Full Summary & Action Steps" above to build your interactive checklist.</p>`;
+      container.innerHTML = `<p class="text-slate-600 italic py-1">Your tasks will appear here.</p>`;
       return;
     }
     container.innerHTML = AppState.currentChecklist.map((item, idx) => `
-      <label class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-emerald-400 transition">
-        <div class="flex items-center gap-2.5">
-          <input type="checkbox" ${item.done ? 'checked' : ''} onchange="AiChatAndChecklistModule.toggleItem(${idx})" class="rounded text-emerald-600 focus:ring-0" />
-          <span class="${item.done ? 'line-through text-slate-400' : 'text-slate-800 font-semibold'}">${item.text}</span>
-        </div>
-        <button type="button" onclick="AiChatAndChecklistModule.removeItem(${idx})" class="text-slate-300 hover:text-rose-500 text-sm font-bold">&times;</button>
-      </label>
+      <div class="task-row flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white border border-slate-200">
+        <label class="flex flex-1 items-center gap-3 cursor-pointer">
+          <input type="checkbox" data-task-index="${idx}" ${item.done ? 'checked' : ''} onchange="AiChatAndChecklistModule.toggleItem(${idx})" class="rounded text-emerald-600 focus:ring-0" />
+          <span class="checklist-task-text ${item.done ? 'line-through text-slate-500' : 'text-slate-800 font-semibold'}">${item.text}</span>
+        </label>
+        <button type="button" aria-label="Remove task ${idx + 1}" onclick="AiChatAndChecklistModule.removeItem(${idx})" class="text-slate-700 hover:text-rose-700 text-sm font-bold">&times;</button>
+      </div>
     `).join('');
   },
 
   toggleItem(idx) {
     AppState.currentChecklist[idx].done = !AppState.currentChecklist[idx].done;
-    this.renderChecklist();
+    const checkbox = document.querySelector(`#checklistContainer [data-task-index="${idx}"]`);
+    const taskText = checkbox && checkbox.parentElement.querySelector('.checklist-task-text');
+    if (taskText) {
+      taskText.classList.toggle('line-through', AppState.currentChecklist[idx].done);
+      taskText.classList.toggle('text-slate-500', AppState.currentChecklist[idx].done);
+      taskText.classList.toggle('text-slate-800', !AppState.currentChecklist[idx].done);
+    }
   },
 
   removeItem(idx) {
     AppState.currentChecklist.splice(idx, 1);
     this.renderChecklist();
+    const nextTask = document.querySelector(`#checklistContainer [data-task-index="${Math.min(idx, AppState.currentChecklist.length - 1)}"]`);
+    if (nextTask) nextTask.focus();
+    else document.getElementById('newTaskInput').focus();
   }
 };
 
@@ -449,7 +487,7 @@ const VaultModule = {
       listEl.innerHTML = `
         <div class="md:col-span-2 text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300">
           <i class="fa-regular fa-folder-open text-3xl text-slate-300 mb-2"></i>
-          <p class="text-xs font-bold text-slate-500">No matching verified records found.</p>
+          <p class="text-xs font-bold text-slate-500">No records found.</p>
         </div>`;
       return;
     }
@@ -463,44 +501,37 @@ const VaultModule = {
       const totalTasks = (r.checklist || []).length;
 
       return `
-        <div class="bg-white dark-card border border-slate-200 rounded-2xl p-5 shadow-xs hover:shadow-md transition flex flex-col justify-between">
-          <div>
+        <article class="record-card bg-white dark-card border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+          <div class="space-y-3">
             <div class="flex items-center justify-between gap-2 mb-2">
-              <span class="text-[11px] font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md">${r.doc_type}</span>
-              <span class="text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${badgeColor}">${r.priority_level}</span>
+              <span class="record-category text-[11px] font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-md">${r.doc_type}</span>
+              <span class="record-priority px-2.5 py-0.5 rounded-full font-bold border ${badgeColor}">${r.priority_level}</span>
             </div>
 
             <h3 class="font-extrabold text-base text-slate-800">${r.resident_name}</h3>
-            <p class="text-xs text-slate-500 mt-0.5">
-              Ref: <strong class="font-mono text-slate-700">${r.reference_no}</strong>
-              ${r.amount_or_date && r.amount_or_date !== 'N/A' ? `• <span class="text-emerald-700 font-bold">${r.amount_or_date}</span>` : ''}
-            </p>
-            <p class="text-[11px] text-slate-400 mt-0.5"><i class="fa-solid fa-location-dot mr-1"></i>${r.purok_address}</p>
+            <p class="record-reference"><span>Reference:</span> <strong class="font-mono text-slate-700">${r.reference_no}</strong></p>
+            ${r.amount_or_date && r.amount_or_date !== 'N/A' ? `<p class="record-date">${r.amount_or_date}</p>` : ''}
 
-            <div class="mt-3 bg-slate-50 dark-subcard border border-slate-200 rounded-xl p-2.5 text-[11px] font-mono text-slate-600 line-clamp-2">${r.verified_ocr}</div>
+            <details class="document-details record-details">
+              <summary>More details</summary>
+              <p><strong>Address:</strong> ${r.purok_address}</p>
+              <p><strong>Document text:</strong></p>
+              <pre class="record-text bg-slate-50 dark-subcard border border-slate-200 rounded-xl p-3 whitespace-pre-wrap">${r.verified_ocr}</pre>
+              <p><strong>Note:</strong> ${r.correction_note || 'None'}</p>
+              <p class="record-date">${r.id} • ${r.updated_at}</p>
+            </details>
           </div>
 
-          <div class="mt-4 pt-3 border-t border-slate-100 space-y-2">
-            <div class="flex flex-wrap items-center justify-between gap-1 text-[11px]">
-              <span class="bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-semibold">
-                <i class="fa-solid fa-user-check mr-1"></i>${r.correction_note}
-              </span>
-              ${totalTasks > 0 ? `<span class="text-emerald-700 font-bold"><i class="fa-solid fa-list-check mr-1"></i>${doneCount}/${totalTasks} steps done</span>` : ''}
-            </div>
-
-            <div class="flex items-center justify-between text-xs pt-1">
-              <span class="text-[11px] text-slate-400 font-mono">${r.id} • ${r.updated_at}</span>
-              <div class="flex items-center gap-3">
-                <button onclick="VaultModule.openRecord('${r.id}')" class="font-extrabold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                  <i class="fa-solid fa-pen-to-square"></i> Inspect / Edit
-                </button>
-                <button onclick="VaultModule.deleteRecord('${r.id}')" class="text-rose-500 hover:text-rose-700 font-semibold">
-                  <i class="fa-regular fa-trash-can"></i>
-                </button>
-              </div>
+          <div class="record-actions">
+            ${totalTasks > 0 ? `<span class="record-progress">${doneCount} of ${totalTasks} tasks done</span>` : ''}
+            <div class="flex items-center gap-2">
+              <button type="button" onclick="VaultModule.openRecord('${r.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-xl">Open</button>
+              <button type="button" aria-label="Delete record ${r.id}" title="Delete record" onclick="VaultModule.deleteRecord('${r.id}')" class="delete-record-button text-rose-700 hover:text-rose-900 font-semibold">
+                <i class="fa-regular fa-trash-can" aria-hidden="true"></i>
+              </button>
             </div>
           </div>
-        </div>
+        </article>
       `;
     }).join('');
   },
@@ -526,11 +557,11 @@ const VaultModule = {
     OcrAndVerifyModule.updateDiffAudit();
     NavigationModule.switchModule('wizard');
     WizardModule.goToStep(2);
-    showToast(`Opened record ${rec.id} in Wizard Step 2`, 'info');
+    showToast('Record opened.', 'info');
   },
 
   async deleteRecord(id) {
-    if (!confirm('Remove this record from the Barangay Vault?')) return;
+    if (!confirm('Delete this record?')) return;
     const res = await fetch('api.php?action=delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -540,7 +571,7 @@ const VaultModule = {
     if (data.success) {
       AppState.recordsCache = data.records;
       this.renderVault();
-      showToast('Record deleted from vault', 'info');
+      showToast('Record deleted.', 'info');
     }
   }
 };
@@ -551,12 +582,34 @@ const VaultModule = {
 document.addEventListener('DOMContentLoaded', () => {
   const documentInput = document.getElementById('documentInput');
   const dropZone = document.getElementById('dropZone');
+  const cameraModal = document.getElementById('cameraModal');
+  const cameraVideo = document.getElementById('cameraVideo');
+  const cameraCanvas = document.getElementById('cameraCanvas');
+  let selectedDocument = null;
+  let cameraStream = null;
+  let capturedPhoto = null;
+  let cameraSession = 0;
 
-  const toggleSidebar = () => {
+  function stopCamera() {
+    cameraSession++;
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      cameraStream = null;
+    }
+    cameraVideo.srcObject = null;
+  }
+
+  function closeCamera() {
+    stopCamera();
+    capturedPhoto = null;
+    cameraModal.classList.add('hidden');
+    cameraModal.classList.remove('flex');
+    document.getElementById('openCameraBtn').focus();
+  }
+
+  const updateSidebarAria = () => {
     const isMobile = window.matchMedia('(max-width: 700px)').matches;
     const isTablet = window.matchMedia('(min-width: 701px) and (max-width: 1024px)').matches;
-    const className = isMobile ? 'sidebar-open' : (isTablet ? 'sidebar-expanded' : 'sidebar-collapsed');
-    document.body.classList.toggle(className);
     const isExpanded = isMobile
       ? document.body.classList.contains('sidebar-open')
       : (isTablet
@@ -566,11 +619,31 @@ document.addEventListener('DOMContentLoaded', () => {
       button.setAttribute('aria-expanded', String(isExpanded));
     });
   };
+  const toggleSidebar = () => {
+    const isMobile = window.matchMedia('(max-width: 700px)').matches;
+    const isTablet = window.matchMedia('(min-width: 701px) and (max-width: 1024px)').matches;
+    const className = isMobile ? 'sidebar-open' : (isTablet ? 'sidebar-expanded' : 'sidebar-collapsed');
+    document.body.classList.toggle(className);
+    updateSidebarAria();
+    if (isMobile && document.body.classList.contains('sidebar-open')) {
+      document.querySelector('.sidebar-link').focus();
+    }
+  };
   document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
   document.getElementById('sidebarToggleDesktop').addEventListener('click', toggleSidebar);
   document.getElementById('sidebarBackdrop').addEventListener('click', () => {
     document.body.classList.remove('sidebar-open');
-    document.getElementById('sidebarToggle').setAttribute('aria-expanded', 'false');
+    updateSidebarAria();
+    document.getElementById('sidebarToggle').focus();
+  });
+  window.addEventListener('resize', updateSidebarAria);
+  updateSidebarAria();
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && document.body.classList.contains('sidebar-open')) {
+      document.body.classList.remove('sidebar-open');
+      updateSidebarAria();
+      document.getElementById('sidebarToggle').focus();
+    }
   });
   document.querySelectorAll('.language-option').forEach(button => {
     button.addEventListener('click', () => I18n.setLanguage(button.dataset.language));
@@ -581,6 +654,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // File Preview handler
   function handleFilePreview(file) {
     if (!file) return;
+    selectedDocument = file;
     document.getElementById('fileNameDisplay').textContent = `Selected: ${file.name}`;
     const previewBox = document.getElementById('previewBox');
     if (file.type.startsWith('image/')) {
@@ -606,20 +680,118 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  document.getElementById('openCameraBtn').addEventListener('click', async () => {
+    const cameraStatus = document.getElementById('cameraStatus');
+    const captureButton = document.getElementById('capturePhotoBtn');
+    capturedPhoto = null;
+    cameraVideo.classList.remove('hidden');
+    cameraCanvas.classList.add('hidden');
+    captureButton.disabled = true;
+    captureButton.classList.remove('hidden');
+    document.getElementById('retakePhotoBtn').classList.add('hidden');
+    document.getElementById('usePhotoBtn').classList.add('hidden');
+    cameraStatus.textContent = 'Starting camera…';
+    cameraModal.classList.remove('hidden');
+    cameraModal.classList.add('flex');
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      cameraStatus.textContent = 'Camera access is not available in this browser. Use HTTPS or localhost, or upload a photo instead.';
+      showToast('Camera access is unavailable. Use HTTPS or localhost, or upload a photo.', 'error');
+      return;
+    }
+
+    const session = ++cameraSession;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' } }
+      });
+      if (session !== cameraSession) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+      cameraStream = stream;
+      cameraVideo.srcObject = stream;
+      await cameraVideo.play();
+      if (session === cameraSession) {
+        captureButton.disabled = false;
+        cameraStatus.textContent = 'Camera ready. Center the document and capture when it is clear.';
+      }
+    } catch (error) {
+      if (session !== cameraSession) return;
+      stopCamera();
+      const message = error.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access in your browser settings, or upload a photo instead.'
+        : 'Could not start the camera. Check that a camera is connected and try again, or upload a photo.';
+      cameraStatus.textContent = message;
+      showToast(message, 'error');
+    }
+  });
+
+  document.getElementById('capturePhotoBtn').addEventListener('click', () => {
+    if (!cameraVideo.videoWidth || !cameraVideo.videoHeight) {
+      showToast('The camera is not ready yet. Please wait a moment and try again.', 'warning');
+      return;
+    }
+
+    cameraCanvas.width = cameraVideo.videoWidth;
+    cameraCanvas.height = cameraVideo.videoHeight;
+    cameraCanvas.getContext('2d').drawImage(cameraVideo, 0, 0, cameraCanvas.width, cameraCanvas.height);
+    cameraCanvas.toBlob(blob => {
+      if (!blob) {
+        showToast('Could not capture the photo. Please try again.', 'error');
+        return;
+      }
+      capturedPhoto = new File([blob], `sagiprekord-photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      cameraVideo.classList.add('hidden');
+      cameraCanvas.classList.remove('hidden');
+      document.getElementById('cameraStatus').textContent = 'Photo captured. Retake it or use it to scan your document.';
+      document.getElementById('capturePhotoBtn').classList.add('hidden');
+      document.getElementById('retakePhotoBtn').classList.remove('hidden');
+      document.getElementById('usePhotoBtn').classList.remove('hidden');
+    }, 'image/jpeg', 0.92);
+  });
+
+  document.getElementById('retakePhotoBtn').addEventListener('click', () => {
+    capturedPhoto = null;
+    cameraVideo.classList.remove('hidden');
+    cameraCanvas.classList.add('hidden');
+    document.getElementById('cameraStatus').textContent = 'Camera ready. Center the document and capture when it is clear.';
+    document.getElementById('capturePhotoBtn').classList.remove('hidden');
+    document.getElementById('retakePhotoBtn').classList.add('hidden');
+    document.getElementById('usePhotoBtn').classList.add('hidden');
+  });
+
+  document.getElementById('usePhotoBtn').addEventListener('click', () => {
+    if (!capturedPhoto) return;
+    handleFilePreview(capturedPhoto);
+    closeCamera();
+    showToast('Photo added. Select “Read document” to continue.', 'success');
+  });
+
+  document.getElementById('closeCameraModal').addEventListener('click', closeCamera);
+  cameraModal.addEventListener('click', event => {
+    if (event.target === cameraModal) closeCamera();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !cameraModal.classList.contains('hidden')) closeCamera();
+  });
+
   // Step 1: OCR Form Submit -> Automatically Advances to Step 2
   document.getElementById('ocrForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!documentInput.files.length) {
-      showToast('Please select an image/PDF file or click one of the 4 Demo Papers below!', 'warning');
+    if (!selectedDocument) {
+      showToast('Choose a photo or PDF first.', 'warning');
       return;
     }
 
     const ocrBtn = document.getElementById('ocrBtn');
     const formData = new FormData();
-    formData.append('document', documentInput.files[0]);
+    formData.append('document', selectedDocument, selectedDocument.name);
 
     ocrBtn.disabled = true;
-    ocrBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Reading Document with Lumen OCR...</span>`;
+    ocrBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Reading document…</span>`;
 
     try {
       const res = await fetch('api.php?action=ocr', { method: 'POST', body: formData });
@@ -633,7 +805,7 @@ document.addEventListener('DOMContentLoaded', () => {
         OcrAndVerifyModule.updateDiffAudit();
         document.getElementById('step1Check').classList.remove('hidden');
         WizardModule.goToStep(2);
-        showToast('Step 1 Complete! Please verify or correct the extracted text in Step 2.', 'success');
+        showToast('Text ready. Check it for mistakes.', 'success');
       } else {
         showToast(data.error || 'OCR scan failed', 'error');
       }
@@ -641,7 +813,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Error connecting to api.php backend', 'error');
     } finally {
       ocrBtn.disabled = false;
-      ocrBtn.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles"></i> <span>Scan Document with Lumen OCR & Continue to Step 2</span> <i class="fa-solid fa-arrow-right ml-1"></i>`;
+      ocrBtn.innerHTML = `<i class="fa-solid fa-file-lines"></i> <span>Read document</span> <i class="fa-solid fa-arrow-right ml-1"></i>`;
     }
   });
 
@@ -663,7 +835,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (orig) {
       document.getElementById('verifiedOcrText').value = orig;
       OcrAndVerifyModule.updateDiffAudit();
-      showToast('Restored raw unedited OCR text', 'warning');
+      showToast('Original text restored.', 'info');
     }
   });
 
@@ -732,23 +904,27 @@ document.addEventListener('DOMContentLoaded', () => {
       AppState.recordsCache = data.records;
       document.getElementById('recordId').value = data.record.id;
       VaultModule.renderVault();
-      showToast(`Saved verified record ${data.record.id}! Opening Digital Vault...`, 'success');
+      showToast('Record saved.', 'success');
       setTimeout(() => NavigationModule.switchModule('vault'), 600);
     }
   });
 
   // Reset Form Button
   document.getElementById('clearFormBtn').addEventListener('click', () => {
+    selectedDocument = null;
+    documentInput.value = '';
+    document.getElementById('fileNameDisplay').textContent = 'Drag & Drop Image or PDF Document Here';
     ['recordId', 'originalOcrStore', 'residentName', 'referenceNo', 'amountOrDate', 'purokAddress', 'verifiedOcrText', 'verifiedAiAdvice', 'correctionNote'].forEach(id => {
       document.getElementById(id).value = '';
     });
+    document.getElementById('previewBox').innerHTML = '<i class="fa-regular fa-file-lines text-3xl text-slate-300 mb-2"></i><p class="text-xs font-bold text-slate-500">No document yet</p>';
     ['step1Check', 'step2Check', 'step3Check'].forEach(id => document.getElementById(id).classList.add('hidden'));
     AppState.currentChecklist = [];
     AppState.currentEditDistance = 0;
     AiChatAndChecklistModule.renderChecklist();
     OcrAndVerifyModule.updateDiffAudit();
     WizardModule.goToStep(1);
-    showToast('Wizard reset to Step 1', 'info');
+    showToast('Ready for a new document.', 'info');
   });
 
   // Printable Slip Modal
@@ -770,7 +946,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <pre class="bg-slate-50 p-2.5 rounded-xl border border-slate-200 font-mono whitespace-pre-wrap text-[11px]">${document.getElementById('verifiedOcrText').value}</pre>
       </div>
       <div>
-        <strong class="block mb-1 text-slate-700">Lumen AI Chat Guidance:</strong>
+        <strong class="block mb-1 text-slate-700">Explanation:</strong>
         <div class="bg-purple-50 p-2.5 rounded-xl border border-purple-200 whitespace-pre-wrap">${document.getElementById('verifiedAiAdvice').value || 'N/A'}</div>
       </div>
       <div>
@@ -808,7 +984,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    showToast('Exported Barangay Vault to CSV!', 'success');
+    showToast('Records exported.', 'success');
   });
 
   // Initial App Boot
