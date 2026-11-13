@@ -1,10 +1,21 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/auth.php';
 startAuthSession();
-$authUsersFile = __DIR__ . '/users.json';
-ensureDemoAccounts($authUsersFile);
-if (!refreshSessionUser($authUsersFile)) {
+try {
+    $pdo = databaseConnection();
+    ensureDemoAccounts($pdo);
+} catch (PDOException $error) {
+    error_log('SagipRekord database initialization failed: ' . $error->getMessage());
+    http_response_code(503);
+    exit('The database is unavailable. Check its configuration and try again.');
+} catch (RuntimeException $error) {
+    error_log('SagipRekord database configuration failed: ' . $error->getMessage());
+    http_response_code(503);
+    exit('The database configuration is invalid.');
+}
+if (!refreshSessionUser($pdo)) {
     header('Location: ./login.html');
     exit;
 }

@@ -91,11 +91,7 @@ function validateUpload(file) {
 
 function initializeSidebar() {
   document.body.classList.toggle('sidebar-collapsed', AppState.sidebarCollapsed);
-  document.getElementById('sidebarToggle').addEventListener('click', () => {
-    if (window.matchMedia('(min-width: 1025px)').matches) return;
-    setSidebarOpen(!document.body.classList.contains('sidebar-open'));
-  });
-  document.getElementById('sidebarToggleDesktop').addEventListener('click', () => {
+  const toggleSidebar = () => {
     if (window.matchMedia('(min-width: 1025px)').matches) {
       AppState.sidebarCollapsed = !AppState.sidebarCollapsed;
       document.body.classList.toggle('sidebar-collapsed', AppState.sidebarCollapsed);
@@ -103,14 +99,26 @@ function initializeSidebar() {
       syncSidebarControls();
       return;
     }
+    if (window.matchMedia('(min-width: 701px)').matches) {
+      document.body.classList.toggle('sidebar-expanded');
+      syncSidebarControls();
+      return;
+    }
     setSidebarOpen(!document.body.classList.contains('sidebar-open'));
+  };
+  document.getElementById('sidebarToggle').addEventListener('click', () => {
+    if (!window.matchMedia('(min-width: 1025px)').matches) toggleSidebar();
   });
+  document.getElementById('sidebarToggleDesktop').addEventListener('click', toggleSidebar);
   document.getElementById('sidebarBackdrop').addEventListener('click', () => setSidebarOpen(false));
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') setSidebarOpen(false);
   });
   window.addEventListener('resize', () => {
-    if (window.matchMedia('(min-width: 1025px)').matches) setSidebarOpen(false);
+    if (!window.matchMedia('(max-width: 700px)').matches) setSidebarOpen(false);
+    if (!window.matchMedia('(min-width: 701px) and (max-width: 1024px)').matches) {
+      document.body.classList.remove('sidebar-expanded');
+    }
     syncSidebarControls();
   });
 }
@@ -455,16 +463,16 @@ function initializeRoleUI(user) {
   document.getElementById('sessionDisplayName').textContent = user.name;
   document.getElementById('sessionRole').textContent = roleLabel(user.role);
   document.getElementById('sessionAvatar').textContent = user.name.trim().charAt(0).toUpperCase() || 'U';
-  document.getElementById('navVaultLabel').textContent = user.role === 'resident' ? 'My records' : user.role === 'worker' ? 'Evacuee Ledger' : 'Records vault';
   document.querySelectorAll('.worker-admin-only').forEach(element => {
     element.hidden = !['worker', 'admin'].includes(user.role);
   });
-  document.getElementById('engineBadge').lastChild.textContent = ` ${roleLabel(user.role)} workspace`;
 
   document.querySelectorAll('.sidebar-link[data-module]').forEach(link => {
-    link.hidden = !AuthModule.hasPermission(link.dataset.module);
+    link.hidden = !AuthModule.hasPermission(link.dataset.module)
+      || !document.getElementById(`module-${link.dataset.module}`);
   });
-  document.getElementById('welcomeTitle').textContent = user.role === 'resident'
+  const welcomeTitle = document.querySelector('[data-i18n="welcomeTitle"]');
+  if (welcomeTitle) welcomeTitle.textContent = user.role === 'resident'
     ? `Welcome, ${user.name}.`
     : user.role === 'worker' ? 'Barangay service workspace.' : 'Administrator workspace.';
   if (user.role === 'resident') {
@@ -616,7 +624,7 @@ function initializeAdmin() {
       <div class="admin-config-item"><strong>Environment</strong><span>${data.demo_mode ? 'Demo mode forced' : data.lumen_credentials_available ? 'Lumen credentials available' : 'Demo fallback active'}</span></div>
       <div class="admin-config-item"><strong>OCR service</strong><span>${data.ocr_configured ? 'Configured' : 'Demo fallback'}</span></div>
       <div class="admin-config-item"><strong>AI chat</strong><span>${data.chat_configured ? 'Configured' : 'Demo fallback'}</span></div>
-      <div class="admin-config-item"><strong>Record storage</strong><span>${data.storage_writable ? 'Writable' : 'Check server permissions'}</span></div>
+      <div class="admin-config-item"><strong>Database</strong><span>${data.database_connected ? 'Connected' : 'Unavailable'}</span></div>
     `;
   }
 
@@ -649,7 +657,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   WizardModule.syncStickyContext();
   const requestedModule = new URLSearchParams(window.location.search).get('view') || AuthModule.defaultModule();
   if (AuthModule.hasPermission(requestedModule)) {
-    NavigationModule.switchModule(requestedModule);
+    NavigationModule.switchModule(
+      document.getElementById(`module-${requestedModule}`) ? requestedModule : AuthModule.defaultModule()
+    );
   } else {
     NavigationModule.switchModule('dashboard');
     showToast('You do not have permission to access this page.', 'error');

@@ -131,7 +131,8 @@ const AuthModule = {
   },
 
   defaultModule() {
-    return this.currentUser?.role === 'admin' ? 'admin' : this.currentUser?.role === 'worker' ? 'vault' : 'dashboard';
+    if (this.currentUser?.role === 'admin' && document.getElementById('module-admin')) return 'admin';
+    return this.currentUser?.role === 'worker' ? 'vault' : 'dashboard';
   }
 };
 
@@ -209,9 +210,12 @@ const NavigationModule = {
 
 function syncSidebarControls() {
   const desktop = window.matchMedia('(min-width: 1025px)').matches;
+  const tablet = window.matchMedia('(min-width: 701px) and (max-width: 1024px)').matches;
   const mobileOpen = document.body.classList.contains('sidebar-open');
-  const expanded = desktop ? !AppState.sidebarCollapsed : mobileOpen;
-  document.getElementById('appSidebar')?.setAttribute('aria-hidden', String(!desktop && !mobileOpen));
+  const expanded = desktop
+    ? !AppState.sidebarCollapsed
+    : tablet ? document.body.classList.contains('sidebar-expanded') : mobileOpen;
+  document.getElementById('appSidebar')?.setAttribute('aria-hidden', String(!desktop && !tablet && !mobileOpen));
   document.querySelectorAll('#sidebarToggle, #sidebarToggleDesktop').forEach(button => {
     button.setAttribute('aria-expanded', String(expanded));
     button.setAttribute('aria-label', I18n.translate(expanded ? 'Collapse navigation' : 'Expand navigation'));
@@ -305,10 +309,18 @@ const I18n = {
     }
   },
 
+  translate(text) {
+    const current = this.translations[AppState.currentLanguage];
+    if (current[text]) return current[text];
+    const key = Object.keys(this.translations.en).find(candidate => this.translations.en[candidate] === text);
+    return key ? current[key] || text : text;
+  },
+
   setLanguage(language) {
     AppState.currentLanguage = this.translations[language] ? language : 'en';
     savePreference('sagiprekord-language', AppState.currentLanguage);
     document.documentElement.lang = AppState.currentLanguage === 'tl' ? 'tl' : 'en';
+    const strings = this.translations[AppState.currentLanguage];
     document.querySelectorAll('[data-i18n]').forEach(element => {
       const key = element.dataset.i18n;
       if (!strings[key]) return;
@@ -326,7 +338,6 @@ const I18n = {
       option.dataset.englishText = englishText;
       option.textContent = this.translate(englishText);
     });
-    this.observeDynamicContent();
   }
 };
 
@@ -580,7 +591,6 @@ const AiChatAndChecklistModule = {
           language: document.getElementById('chatLanguage').value
         })
       });
-      const data = await res.json();
       if (data.success) {
         aiBox.value = data.reply;
         this.extractTasksFromAiReply(data.reply);
@@ -793,26 +803,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const documentInput = document.getElementById('documentInput');
   const dropZone = document.getElementById('dropZone');
 
-  const toggleSidebar = () => {
-    const isMobile = window.matchMedia('(max-width: 700px)').matches;
-    const isTablet = window.matchMedia('(min-width: 701px) and (max-width: 1024px)').matches;
-    const className = isMobile ? 'sidebar-open' : (isTablet ? 'sidebar-expanded' : 'sidebar-collapsed');
-    document.body.classList.toggle(className);
-    const isExpanded = isMobile
-      ? document.body.classList.contains('sidebar-open')
-      : (isTablet
-        ? document.body.classList.contains('sidebar-expanded')
-        : !document.body.classList.contains('sidebar-collapsed'));
-    document.querySelectorAll('#sidebarToggle, #sidebarToggleDesktop').forEach(button => {
-      button.setAttribute('aria-expanded', String(isExpanded));
-    });
-  };
-  document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
-  document.getElementById('sidebarToggleDesktop').addEventListener('click', toggleSidebar);
-  document.getElementById('sidebarBackdrop').addEventListener('click', () => {
-    document.body.classList.remove('sidebar-open');
-    document.getElementById('sidebarToggle').setAttribute('aria-expanded', 'false');
-  });
   document.querySelectorAll('.language-option').forEach(button => {
     button.addEventListener('click', () => I18n.setLanguage(button.dataset.language));
   });

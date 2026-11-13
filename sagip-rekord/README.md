@@ -4,14 +4,23 @@ AI-powered disaster relief and barangay document digitizer built with Lumen AI.
 
 ## Run locally
 
-The vanilla app needs PHP 8+ with the JSON, fileinfo, and (for live Lumen requests) cURL extensions.
+The app needs PHP 8+ with PDO MySQL, JSON, and fileinfo extensions. The cURL extension is needed for live Lumen requests. XAMPP includes MariaDB and the PHP MySQL driver.
+
+## Database setup
+
+1. Copy `.env.example` to `.env` in this folder and set the database connection values. Do not commit `.env`.
+2. Create the tables by importing `schema.sql` in phpMyAdmin or with the MySQL command-line client. The default database name is `sagiprekord`.
+3. If you have data in `users.json`, `records.json`, or `audit.jsonl`, run `php migrate_json_to_mysql.php` once from this folder. The JSON files are left in place as backups.
+4. Start the PHP server as shown below.
+
+The database stores accounts, saved records, checklists, and audit events. Uploaded source files are sent to OCR but are not retained; the saved record contains the extracted and verified text. For a public deployment, use a dedicated database account with access only to this database instead of the local XAMPP root account.
 
 ```sh
 cd sagip-rekord
 php -S 127.0.0.1:8000 router.php
 ```
 
-Open `http://127.0.0.1:8000/`; unauthenticated visits are redirected to `login.html`. The web server must be able to write to `records.json`, `users.json`, and their lock files, plus `audit.jsonl`.
+Open `http://127.0.0.1:8000/`; unauthenticated visits are redirected to `login.html`.
 
 The frontend API endpoint is configured by the `api-base` meta tag in `index.php`:
 

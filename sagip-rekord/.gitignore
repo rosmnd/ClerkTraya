@@ -4,5 +4,8 @@ records.json.lock
 users.json
 users.json.lock
 audit.jsonl
+users.json
+audit.jsonl
+*.lock
 uploads/
 .DS_Store

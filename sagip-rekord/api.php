@@ -15,77 +15,12 @@ function respond(array $payload, int $status = 200): void
 function readJsonBody(): array
 {
     $raw = file_get_contents('php://input');
-    $decoded = json_decode($raw === false ? '' : $raw);
+    $raw = $raw === false ? '' : $raw;
+    $decoded = json_decode($raw);
     if (!$decoded instanceof stdClass) {
         respond(['success' => false, 'error' => 'Request body must be a valid JSON object.'], 400);
     }
-    return get_object_vars($decoded);
-}
-
-function configValue(string $name, string $default = ''): string
-{
-    if (isset($_ENV[$name]) && is_string($_ENV[$name])) {
-        return $_ENV[$name];
-    }
-    if (isset($_SERVER[$name]) && is_string($_SERVER[$name])) {
-        return $_SERVER[$name];
-    }
-    $value = getenv($name);
-    return $value === false ? $default : $value;
-}
-
-function loadEnvFile(string $path): void
-{
-    if (!is_readable($path)) {
-        return;
-    }
-    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if ($lines === false) {
-        return;
-    }
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) {
-            continue;
-        }
-        [$name, $value] = explode('=', $line, 2);
-        $name = trim($name);
-        $environmentValue = $name !== '' ? getenv($name) : false;
-        if ($name !== '' && !isset($_ENV[$name]) && !isset($_SERVER[$name]) && $environmentValue === false) {
-            $_ENV[$name] = trim($value, " \t\n\r\0\x0B\"'");
-        }
-    }
-}
-
-function withRecordsLock(string $dbFile, int $lockMode, callable $callback)
-{
-    $lock = fopen($dbFile . '.lock', 'c');
-    if ($lock === false || !flock($lock, $lockMode)) {
-        if (is_resource($lock)) {
-            fclose($lock);
-        }
-        respond(['success' => false, 'error' => 'The records store is unavailable. Check server file permissions.'], 500);
-    }
-
-    try {
-        $raw = is_file($dbFile) ? file_get_contents($dbFile) : '[]';
-        $records = json_decode($raw === false ? '' : $raw, true);
-        if (!is_array($records)) {
-            respond(['success' => false, 'error' => 'The records store contains invalid JSON. Restore records.json from a valid backup.'], 500);
-        }
-        return $callback($records);
-    } finally {
-        flock($lock, LOCK_UN);
-        fclose($lock);
-    }
-}
-
-function writeRecords(string $dbFile, array $records): void
-{
-    $encoded = json_encode(array_values($records), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
-    if ($encoded === false || file_put_contents($dbFile, $encoded . PHP_EOL, LOCK_EX) === false) {
-        respond(['success' => false, 'error' => 'Could not save records. Check server file permissions and available storage.'], 500);
-    }
+    return json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 }
 
 function postJsonToLumen(string $url, array $payload, string $apiKey, string $apiSecret): array
@@ -141,30 +76,42 @@ function textValue(array $input, string $key, string $default, int $maxLength): 
     return $value;
 }
 
+require_once __DIR__ . '/database.php';
+try {
+    $pdo = databaseConnection();
+} catch (PDOException $error) {
+    error_log('SagipRekord database connection failed: ' . $error->getMessage());
+    respond(['success' => false, 'error' => 'The database is unavailable. Check its configuration and try again.'], 503);
+} catch (RuntimeException $error) {
+    error_log('SagipRekord database configuration failed: ' . $error->getMessage());
+    respond(['success' => false, 'error' => 'The database configuration is invalid.'], 503);
+}
+
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/record_store.php';
 startAuthSession();
-loadEnvFile(__DIR__ . '/.env');
 $apiKey = configValue('LUMEN_API_KEY');
 $apiSecret = configValue('LUMEN_API_SECRET');
 $ocrUrl = configValue('LUMEN_OCR_URL');
 $chatUrl = configValue('LUMEN_CHAT_URL');
 $demoMode = filter_var(configValue('SAGIPREKORD_DEMO_MODE', 'false'), FILTER_VALIDATE_BOOLEAN);
 $hasLumenCredentials = $apiKey !== '' && $apiSecret !== '';
-$dbFile = __DIR__ . '/records.json';
-$usersFile = __DIR__ . '/users.json';
-$auditFile = __DIR__ . '/audit.jsonl';
-$authUsersFile = $usersFile;
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
-ensureDemoAccounts($usersFile);
-if (handleAuthAction($action, $method, $usersFile, $auditFile)) {
+try {
+    ensureDemoAccounts($pdo);
+} catch (PDOException $error) {
+    error_log('SagipRekord database initialization failed: ' . $error->getMessage());
+    respond(['success' => false, 'error' => 'The database is not ready. Import schema.sql and try again.'], 503);
+}
+if (handleAuthAction($action, $method, $pdo)) {
     exit;
 }
-$currentUser = requireCurrentUser();
+$currentUser = requireCurrentUser($pdo);
 
 if ($action === 'admin_config') {
-    requireCurrentUser(['admin']);
+    requireCurrentUser($pdo, ['admin']);
     if ($method !== 'GET') {
         respond(['success' => false, 'error' => 'Use GET to view system configuration.'], 405);
     }
@@ -174,20 +121,13 @@ if ($action === 'admin_config') {
         'lumen_credentials_available' => $hasLumenCredentials,
         'ocr_configured' => $ocrUrl !== '' && $hasLumenCredentials,
         'chat_configured' => $chatUrl !== '' && $hasLumenCredentials,
-        'storage_writable' => (is_file($dbFile) ? is_writable($dbFile) : is_writable(dirname($dbFile))),
+        'database_connected' => true,
     ]);
 }
 
 if ($action === 'list' && $method === 'GET') {
-    $records = withRecordsLock($dbFile, LOCK_SH, static function (array $records) use ($currentUser): array {
-        if ($currentUser['role'] === 'resident') {
-            return array_values(array_filter($records, static function ($record) use ($currentUser): bool {
-                return is_array($record) && ($record['owner_id'] ?? '') === $currentUser['id'];
-            }));
-        }
-        return $records;
-    });
-    auditEvent($auditFile, $currentUser, 'records.list', ['count' => count($records)]);
+    $records = recordsForUser($pdo, $currentUser);
+    auditEvent($pdo, $currentUser, 'records.list', ['count' => count($records)]);
     respond(['success' => true, 'records' => $records]);
 }
 
@@ -342,7 +282,7 @@ if ($action === 'save' || $action === 'delete') {
             $checklist[] = ['text' => trim($item['text']), 'done' => (bool) ($item['done'] ?? false)];
         }
         $recordData = [
-            'id' => $recordId !== '' ? $recordId : 'SR-' . strtoupper(bin2hex(random_bytes(4))),
+            'id' => $recordId !== '' ? $recordId : 'SR-' . strtoupper(bin2hex(random_bytes(8))),
             'doc_type' => textValue($input, 'doc_type', 'Forms (DAF-AC Relief Intake)', 200),
             'resident_name' => textValue($input, 'resident_name', 'Unnamed Resident', 200),
             'reference_no' => textValue($input, 'reference_no', 'N/A', 100),
@@ -355,89 +295,36 @@ if ($action === 'save' || $action === 'delete') {
             'checklist' => $checklist,
             'correction_note' => textValue($input, 'correction_note', 'Checked and verified by user', 500),
             'edit_count' => max(0, min(50000, (int) ($input['edit_count'] ?? 0))),
-            'updated_at' => date('M d, Y h:i A'),
         ];
-        $ownerId = $currentUser['role'] === 'resident' ? $currentUser['id'] : '';
+        $ownerId = $currentUser['role'] === 'resident' ? $currentUser['id'] : null;
         $ownerEmail = strtolower(textValue($input, 'owner_email', '', 254));
         if ($currentUser['role'] !== 'resident' && $ownerEmail !== '') {
-            $ownerId = withJsonStore($usersFile, [], static function (array &$users) use ($ownerEmail): string {
-                foreach ($users as $account) {
-                    if (strtolower((string) ($account['email'] ?? '')) === $ownerEmail
-                        && ($account['active'] ?? false) === true
-                        && ($account['role'] ?? '') === 'resident') {
-                        return (string) $account['id'];
-                    }
-                }
+            $statement = $pdo->prepare(
+                'SELECT id FROM users WHERE email = :email AND active = 1 AND role = :role'
+            );
+            $statement->execute(['email' => $ownerEmail, 'role' => 'resident']);
+            $ownerId = $statement->fetchColumn();
+            if ($ownerId === false) {
                 respond(['success' => false, 'error' => 'No active resident account uses that email.'], 400);
-            });
+            }
         }
 
-        $result = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordData, $currentUser, $ownerId, $ownerEmail): array {
-            $updated = false;
-            foreach ($records as $index => $existing) {
-                if (isset($existing['id']) && $existing['id'] === $recordData['id']) {
-                    if ($currentUser['role'] === 'resident' && ($existing['owner_id'] ?? '') !== $currentUser['id']) {
-                        respond(['success' => false, 'error' => 'You do not have permission to change this record.', 'code' => 'forbidden'], 403);
-                    }
-                    $recordData['owner_id'] = $ownerId !== '' ? $ownerId : ($existing['owner_id'] ?? '');
-                    $recordData['owner_email'] = $ownerEmail !== '' ? $ownerEmail : ($existing['owner_email'] ?? '');
-                    $recordData['created_by'] = $existing['created_by'] ?? $currentUser['id'];
-                    $recordData['verified_by'] = $currentUser['id'];
-                    $records[$index] = $recordData;
-                    $updated = true;
-                    break;
-                }
-            }
-            if (!$updated) {
-                $recordData['owner_id'] = $ownerId;
-                $recordData['owner_email'] = $ownerEmail;
-                $recordData['created_by'] = $currentUser['id'];
-                $recordData['verified_by'] = $currentUser['id'];
-                array_unshift($records, $recordData);
-            }
-            writeRecords($dbFile, $records);
-            return ['record' => $recordData, 'records' => array_values($records)];
-        });
-        if ($currentUser['role'] === 'resident') {
-            $result['records'] = array_values(array_filter($result['records'], static function ($record) use ($currentUser): bool {
-                return ($record['owner_id'] ?? '') === $currentUser['id'];
-            }));
-        }
-        auditEvent($auditFile, $currentUser, $recordId === '' ? 'records.create' : 'records.update', ['record_id' => $result['record']['id']]);
-        respond(['success' => true, 'record' => $result['record'], 'records' => $result['records']]);
+        $savedRecord = saveRecord($pdo, $recordData, $currentUser, $ownerId, $ownerEmail);
+        auditEvent($pdo, $currentUser, $recordId === '' ? 'records.create' : 'records.update', ['record_id' => $savedRecord['id']]);
+        respond([
+            'success' => true,
+            'record' => $savedRecord,
+            'records' => recordsForUser($pdo, $currentUser),
+        ]);
     }
 
     $recordId = textValue($input, 'id', '', 64);
     if ($recordId === '') {
         respond(['success' => false, 'error' => 'Record ID is required.'], 400);
     }
-    $records = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordId, $currentUser): array {
-        $found = false;
-        foreach ($records as $record) {
-            if (is_array($record) && ($record['id'] ?? '') === $recordId) {
-                $found = true;
-                if ($currentUser['role'] === 'resident' && ($record['owner_id'] ?? '') !== $currentUser['id']) {
-                    respond(['success' => false, 'error' => 'You do not have permission to remove this record.', 'code' => 'forbidden'], 403);
-                }
-                break;
-            }
-        }
-        if (!$found) {
-            respond(['success' => false, 'error' => 'The requested record was not found.'], 404);
-        }
-        $remaining = array_values(array_filter($records, static function ($record) use ($recordId): bool {
-            return !is_array($record) || ($record['id'] ?? '') !== $recordId;
-        }));
-        writeRecords($dbFile, $remaining);
-        return $remaining;
-    });
-    auditEvent($auditFile, $currentUser, 'records.delete', ['record_id' => $recordId]);
-    if ($currentUser['role'] === 'resident') {
-        $records = array_values(array_filter($records, static function ($record) use ($currentUser): bool {
-            return ($record['owner_id'] ?? '') === $currentUser['id'];
-        }));
-    }
-    respond(['success' => true, 'records' => $records]);
+    deleteRecord($pdo, $recordId, $currentUser);
+    auditEvent($pdo, $currentUser, 'records.delete', ['record_id' => $recordId]);
+    respond(['success' => true, 'records' => recordsForUser($pdo, $currentUser)]);
 }
 
 respond(['success' => false, 'error' => 'Invalid API action.'], 404);
