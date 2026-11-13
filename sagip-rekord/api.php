@@ -1,278 +1,364 @@
 <?php
-header('Content-Type: application/json');
+declare(strict_types=1);
 
-// Load .env credentials on the backend
-function loadEnv($path) {
-    if (!file_exists($path)) return;
+header('Content-Type: application/json; charset=utf-8');
+header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store');
+
+function respond(array $payload, int $status = 200): void
+{
+    http_response_code($status);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
+
+function readJsonBody(): array
+{
+    $raw = file_get_contents('php://input');
+    $decoded = json_decode($raw === false ? '' : $raw);
+    if (!$decoded instanceof stdClass) {
+        respond(['success' => false, 'error' => 'Request body must be a valid JSON object.'], 400);
+    }
+    return get_object_vars($decoded);
+}
+
+function configValue(string $name, string $default = ''): string
+{
+    if (isset($_ENV[$name]) && is_string($_ENV[$name])) {
+        return $_ENV[$name];
+    }
+    if (isset($_SERVER[$name]) && is_string($_SERVER[$name])) {
+        return $_SERVER[$name];
+    }
+    $value = getenv($name);
+    return $value === false ? $default : $value;
+}
+
+function loadEnvFile(string $path): void
+{
+    if (!is_readable($path)) {
+        return;
+    }
     $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines === false) {
+        return;
+    }
     foreach ($lines as $line) {
         $line = trim($line);
-        if ($line === '' || strpos($line, '#') === 0 || strpos($line, '=') === false) continue;
-        list($name, $value) = explode('=', $line, 2);
-        $_ENV[trim($name)] = trim($value, " \t\n\r\0\x0B\"'");
-    }
-}
-loadEnv(__DIR__ . '/.env');
-
-$apiKey    = $_ENV['LUMEN_API_KEY'] ?? '';
-$apiSecret = $_ENV['LUMEN_API_SECRET'] ?? '';
-$ocrUrl    = $_ENV['LUMEN_OCR_URL'] ?? '';
-$chatUrl   = $_ENV['LUMEN_CHAT_URL'] ?? '';
-
-$dbFile = __DIR__ . '/records.json';
-
-// Seed realistic Barangay Palatiw records on first run
-if (!file_exists($dbFile)) {
-    $seedRecords = [
-        [
-            'id'              => 'SR-8842A1',
-            'doc_type'        => 'Forms (DAF-AC Relief Intake)',
-            'resident_name'   => 'Santos, Maria Elena R.',
-            'reference_no'    => 'PLTW-2026-0841',
-            'amount_or_date'  => 'Nov 13, 2026',
-            'purok_address'   => 'Sitio Kalayaan, Brgy. Palatiw, Pasig City',
-            'priority_level'  => 'High Priority',
-            'original_ocr'    => "BARANGAY PALATIW - DAF-AC FORM\nControl No: PLTW-2026-0841\nHead: Sant0s, Maria Elena R.\nDependents: 6 (1 Senior, 1 Infant)\nNeeds: Losartan 50mg, lost Senior ID.",
-            'verified_ocr'    => "BARANGAY PALATIW - DAF-AC FORM\nControl No: PLTW-2026-0841\nHead: Santos, Maria Elena R.\nDependents: 6 (1 Senior, 1 Infant)\nNeeds: Losartan 50mg, lost Senior ID.",
-            'verified_advice' => "• Ipakita ang Control #PLTW-2026-0841 sa Barangay Palatiw Health Station para sa libreng Losartan 50mg.\n• Kumuha ng Barangay Certificate of Calamity para sa libreng replacement ng Senior Citizen ID sa OSCA.\n• Pumunta sa Covered Court bukas nang 8:00 AM para sa 2nd Wave DSWD Relief Pack.",
-            'checklist'       => [
-                ['text' => 'Claim free Losartan 50mg at Barangay Health Station', 'done' => true],
-                ['text' => 'Request Certificate of Calamity for lost Senior ID', 'done' => false],
-                ['text' => 'Bring verified slip #PLTW-2026-0841 to Covered Court', 'done' => false]
-            ],
-            'correction_note' => 'Fixed OCR typo in surname (Sant0s -> Santos)',
-            'edit_count'      => 1,
-            'updated_at'      => date('M d, Y h:i A')
-        ],
-        [
-            'id'              => 'SR-3091B4',
-            'doc_type'        => 'Bills (Utility / Disconnection Notice)',
-            'resident_name'   => 'Dela Cruz, Roberto M.',
-            'reference_no'    => 'MRLC-4491028',
-            'amount_or_date'  => 'PHP 2,840.50 • Due Nov 20',
-            'purok_address'   => 'Market Ave., Brgy. Palatiw, Pasig City',
-            'priority_level'  => 'Action Required',
-            'original_ocr'    => "MERALCO ELECTRIC BILLING STATEMENT\nAccount: MRLC-4491028\nTotal Due: PHP 2,840.50\nDue Date: Nov 20, 2026\nAdvisory: Typhoon-affected households in Pasig may request a 30-day staggered payment arrangement.",
-            'verified_ocr'    => "MERALCO ELECTRIC BILLING STATEMENT\nAccount: MRLC-4491028\nTotal Due: PHP 2,840.50\nDue Date: Nov 20, 2026\nAdvisory: Typhoon-affected households in Pasig may request a 30-day staggered payment arrangement.",
-            'verified_advice' => "• Ang iyong bill ay PHP 2,840.50 at due sa Nov 20, 2026.\n• Dahil sa bagyo, pwedeng mag-request ng 30-day installment plan.\n• Dalhin ang bill at Barangay Calamity Certification sa pinakamalapit na Meralco Business Center bago mag-Nov 20.",
-            'checklist'       => [
-                ['text' => 'Secure Barangay Palatiw Calamity Certificate', 'done' => true],
-                ['text' => 'File 30-day staggered payment request before Nov 20', 'done' => false]
-            ],
-            'correction_note' => 'Verified total amount and due date',
-            'edit_count'      => 0,
-            'updated_at'      => date('M d, Y h:i A')
-        ]
-    ];
-    file_put_contents($dbFile, json_encode($seedRecords, JSON_PRETTY_PRINT));
-}
-
-$action = $_GET['action'] ?? '';
-
-// 1. LUMEN OCR ENDPOINT
-if ($action === 'ocr' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!isset($_FILES['document']) || $_FILES['document']['error'] !== UPLOAD_ERR_OK) {
-        echo json_encode(['success' => false, 'error' => 'Please select a valid image or PDF file.']);
-        exit;
-    }
-
-    $tmpPath  = $_FILES['document']['tmp_name'];
-    $fileName = $_FILES['document']['name'];
-    $mimeType = $_FILES['document']['type'] ?: 'application/octet-stream';
-
-    if (!empty($ocrUrl)) {
-        $ch = curl_init($ocrUrl);
-        $cfile = new CURLFile($tmpPath, $mimeType, $fileName);
-
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => ['file' => $cfile],
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 45,
-            CURLOPT_HTTPHEADER     => [
-                'lumen-api-key: ' . $apiKey,
-                'lumen-api-secret: ' . $apiSecret
-            ]
-        ]);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr  = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlErr) {
-            echo json_encode(['success' => false, 'error' => 'Backend cURL Error: ' . $curlErr]);
-            exit;
+        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) {
+            continue;
         }
-
-        $decoded = json_decode($response, true);
-        $extractedText = $decoded['text']
-            ?? $decoded['data']['text']
-            ?? $decoded['result']['text']
-            ?? $decoded['result']
-            ?? $decoded['content']
-            ?? $response;
-
-        echo json_encode([
-            'success'   => ($httpCode >= 200 && $httpCode < 300),
-            'mode'      => 'live_lumen_ocr',
-            'http_code' => $httpCode,
-            'raw_text'  => is_string($extractedText) ? $extractedText : json_encode($extractedText, JSON_PRETTY_PRINT)
-        ]);
-        exit;
+        [$name, $value] = explode('=', $line, 2);
+        $name = trim($name);
+        $environmentValue = $name !== '' ? getenv($name) : false;
+        if ($name !== '' && !isset($_ENV[$name]) && !isset($_SERVER[$name]) && $environmentValue === false) {
+            $_ENV[$name] = trim($value, " \t\n\r\0\x0B\"'");
+        }
     }
-
-    // Fallback when testing before adding OCR endpoint URL
-    echo json_encode([
-        'success'  => true,
-        'mode'     => 'demo_fallback',
-        'raw_text' => "REPUBLIC OF THE PHILIPPINES\nBARANGAY PALATIW, PASIG CITY - DRRMO\nDISASTER ASSISTANCE FAMILY ACCESS CARD (DAF-AC)\n\nDate Issued: Nov 13, 2026\nControl / Stub No: PLTW-2026-0915\nHead of Household: Mendoza, Teresita L.\nAddress: Purok 4, Market Ave., Brgy. Palatiw, Pasig City\nAmount / Assistance: PHP 5,000.00 Emergency Cash Transfer (ECT)\nMedical / Urgent Needs: Insulin Pen (Glargine), Senior Citizen ID damaged by flood.\nDeadline: Claim on or before Nov 16, 2026 at Brgy. Palatiw Covered Court."
-    ]);
-    exit;
 }
 
-// 2. LUMEN AI CHAT ENDPOINT
-if ($action === 'chat' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $input        = json_decode(file_get_contents('php://input'), true);
-    $documentText = trim($input['document_text'] ?? '');
-    $userQuestion = trim($input['prompt'] ?? 'Ipaliwanag ang dokumentong ito at ibigay ang mga hakbang na dapat gawin.');
-    $language     = trim($input['language'] ?? 'Taglish');
-
-    if ($documentText === '') {
-        echo json_encode(['success' => false, 'error' => 'No document text provided.']);
-        exit;
+function withRecordsLock(string $dbFile, int $lockMode, callable $callback)
+{
+    $lock = fopen($dbFile . '.lock', 'c');
+    if ($lock === false || !flock($lock, $lockMode)) {
+        if (is_resource($lock)) {
+            fclose($lock);
+        }
+        respond(['success' => false, 'error' => 'The records store is unavailable. Check server file permissions.'], 500);
     }
 
-    $systemPrompt = "You are SagipRekord AI, an official public document and disaster relief assistant for Barangay Palatiw DRRMO in Pasig City, Philippines. "
-        . "Help residents and barangay workers understand forms, receipts, bills, notices, and records. "
-        . "Respond in $language. Format your response clearly with bullet points starting with '• ' for the summary and numbered steps (1., 2., 3.) for the exact actions the user must take.";
+    try {
+        $raw = is_file($dbFile) ? file_get_contents($dbFile) : '[]';
+        $records = json_decode($raw === false ? '' : $raw, true);
+        if (!is_array($records)) {
+            respond(['success' => false, 'error' => 'The records store contains invalid JSON. Restore records.json from a valid backup.'], 500);
+        }
+        return $callback($records);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
 
-    $combinedPrompt = $systemPrompt . "\n\nVERIFIED DOCUMENT:\n" . $documentText . "\n\nUSER QUESTION:\n" . $userQuestion;
+function writeRecords(string $dbFile, array $records): void
+{
+    $encoded = json_encode(array_values($records), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($encoded === false || file_put_contents($dbFile, $encoded . PHP_EOL, LOCK_EX) === false) {
+        respond(['success' => false, 'error' => 'Could not save records. Check server file permissions and available storage.'], 500);
+    }
+}
 
-    if (!empty($chatUrl)) {
-        $ch = curl_init($chatUrl);
-        $payload = json_encode([
+function postJsonToLumen(string $url, array $payload, string $apiKey, string $apiSecret): array
+{
+    if (!function_exists('curl_init')) {
+        respond(['success' => false, 'error' => 'The PHP cURL extension is required for live Lumen requests.'], 503);
+    }
+
+    $ch = curl_init($url);
+    if ($ch === false) {
+        respond(['success' => false, 'error' => 'Could not initialize the Lumen request.'], 502);
+    }
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 45,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'lumen-api-key: ' . $apiKey,
+            'lumen-api-secret: ' . $apiSecret,
+        ],
+    ]);
+    $response = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false || $curlError !== '') {
+        respond(['success' => false, 'error' => 'The Lumen service could not be reached. Please try again.'], 502);
+    }
+    $decoded = json_decode($response, true);
+    if ($httpCode < 200 || $httpCode >= 300) {
+        respond(['success' => false, 'error' => 'The Lumen service returned an error. Please check its configuration and try again.'], 502);
+    }
+    if (!is_array($decoded)) {
+        respond(['success' => false, 'error' => 'The Lumen service returned an unreadable response.'], 502);
+    }
+    return [$decoded, $httpCode];
+}
+
+function textValue(array $input, string $key, string $default, int $maxLength): string
+{
+    $value = $input[$key] ?? $default;
+    if (!is_string($value) && !is_numeric($value)) {
+        respond(['success' => false, 'error' => 'Invalid value for ' . $key . '.'], 400);
+    }
+    $value = trim((string) $value);
+    if (strlen($value) > $maxLength) {
+        respond(['success' => false, 'error' => ucfirst(str_replace('_', ' ', $key)) . ' is too long.'], 400);
+    }
+    return $value;
+}
+
+loadEnvFile(__DIR__ . '/.env');
+$apiKey = configValue('LUMEN_API_KEY');
+$apiSecret = configValue('LUMEN_API_SECRET');
+$ocrUrl = configValue('LUMEN_OCR_URL');
+$chatUrl = configValue('LUMEN_CHAT_URL');
+$demoMode = filter_var(configValue('SAGIPREKORD_DEMO_MODE', 'false'), FILTER_VALIDATE_BOOLEAN);
+$hasLumenCredentials = $apiKey !== '' && $apiSecret !== '';
+$dbFile = __DIR__ . '/records.json';
+$action = $_GET['action'] ?? '';
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+if ($action === 'list' && $method === 'GET') {
+    $records = withRecordsLock($dbFile, LOCK_SH, static function (array $records): array {
+        return $records;
+    });
+    respond(['success' => true, 'records' => $records]);
+}
+
+if ($action === 'ocr') {
+    if ($method !== 'POST') {
+        respond(['success' => false, 'error' => 'Use POST to scan a document.'], 405);
+    }
+    if (!isset($_FILES['document']) || !is_array($_FILES['document'])) {
+        respond(['success' => false, 'error' => 'Choose an image or PDF to scan.'], 400);
+    }
+    $upload = $_FILES['document'];
+    $uploadError = $upload['error'] ?? UPLOAD_ERR_NO_FILE;
+    $temporaryPath = $upload['tmp_name'] ?? '';
+    if ($uploadError !== UPLOAD_ERR_OK || !is_string($temporaryPath) || !is_uploaded_file($temporaryPath)) {
+        $message = $uploadError === UPLOAD_ERR_INI_SIZE || $uploadError === UPLOAD_ERR_FORM_SIZE
+            ? 'The document exceeds the upload size limit.'
+            : 'The document upload did not complete. Please try again.';
+        respond(['success' => false, 'error' => $message], 400);
+    }
+    $uploadSize = $upload['size'] ?? 0;
+    if (!is_numeric($uploadSize) || (int) $uploadSize < 1 || (int) $uploadSize > 10 * 1024 * 1024) {
+        respond(['success' => false, 'error' => 'Documents must be smaller than 10 MB.'], 413);
+    }
+    if (!class_exists('finfo')) {
+        respond(['success' => false, 'error' => 'The PHP fileinfo extension is required to validate document uploads.'], 503);
+    }
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($temporaryPath);
+    $allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!in_array($mimeType, $allowedMimeTypes, true)) {
+        respond(['success' => false, 'error' => 'Use a JPEG, PNG, WebP image, or PDF document.'], 415);
+    }
+
+    if (!$demoMode && $ocrUrl !== '' && $hasLumenCredentials) {
+        if (!function_exists('curl_init')) {
+            respond(['success' => false, 'error' => 'The PHP cURL extension is required for live Lumen OCR.'], 503);
+        }
+        $file = new CURLFile($temporaryPath, $mimeType, basename((string) ($upload['name'] ?? 'document')));
+        $ch = curl_init($ocrUrl);
+        if ($ch === false) {
+            respond(['success' => false, 'error' => 'Could not initialize the Lumen OCR request.'], 502);
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => ['file' => $file],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 45,
+            CURLOPT_HTTPHEADER => [
+                'lumen-api-key: ' . $apiKey,
+                'lumen-api-secret: ' . $apiSecret,
+            ],
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        if ($response === false || $curlError !== '') {
+            respond(['success' => false, 'error' => 'The Lumen OCR service could not be reached. Please try again.'], 502);
+        }
+        $decoded = json_decode($response, true);
+        if ($httpCode < 200 || $httpCode >= 300 || !is_array($decoded)) {
+            respond(['success' => false, 'error' => 'The Lumen OCR service returned an error. Please check its configuration.'], 502);
+        }
+        $rawText = $decoded['text'] ?? $decoded['data']['text'] ?? $decoded['result']['text'] ?? $decoded['result'] ?? $decoded['content'] ?? '';
+        if (!is_string($rawText) || trim($rawText) === '') {
+            respond(['success' => false, 'error' => 'Lumen OCR did not return any document text.'], 502);
+        }
+        respond(['success' => true, 'mode' => 'live_lumen_ocr', 'raw_text' => $rawText]);
+    }
+
+    respond([
+        'success' => true,
+        'mode' => 'demo_fallback',
+        'raw_text' => "REPUBLIC OF THE PHILIPPINES\nBARANGAY PALATIW, PASIG CITY - DRRMO\nDISASTER ASSISTANCE FAMILY ACCESS CARD (DAF-AC)\n\nDate Issued: Nov 13, 2026\nControl / Stub No: PLTW-2026-0915\nHead of Household: Mendoza, Teresita L.\nAddress: Purok 4, Market Ave., Brgy. Palatiw, Pasig City\nAmount / Assistance: PHP 5,000.00 Emergency Cash Transfer (ECT)\nMedical / Urgent Needs: Insulin Pen (Glargine), Senior Citizen ID damaged by flood.\nDeadline: Claim on or before Nov 16, 2026 at Brgy. Palatiw Covered Court.",
+    ]);
+}
+
+if ($action === 'chat') {
+    if ($method !== 'POST') {
+        respond(['success' => false, 'error' => 'Use POST to ask the document assistant.'], 405);
+    }
+    $input = readJsonBody();
+    $documentText = textValue($input, 'document_text', '', 50000);
+    $userQuestion = textValue($input, 'prompt', 'Explain this document and list the next steps.', 2000);
+    $language = textValue($input, 'language', 'Taglish (Simple Filipino-English)', 80);
+    if ($documentText === '') {
+        respond(['success' => false, 'error' => 'Scan or load a document before asking for help.'], 400);
+    }
+    $allowedLanguages = ['Taglish (Simple Filipino-English)', 'Simple Tagalog', 'Simple Plain English'];
+    if (!in_array($language, $allowedLanguages, true)) {
+        respond(['success' => false, 'error' => 'Choose a supported response language.'], 400);
+    }
+
+    if (!$demoMode && $chatUrl !== '' && $hasLumenCredentials) {
+        $systemPrompt = "You are SagipRekord AI, a document explainer for Barangay Palatiw in Pasig City. Explain what is in the supplied verified document, distinguish its stated facts from general advice, and do not invent deadlines, eligibility, or benefits. Respond in $language. End with actionable numbered next steps based on the document.";
+        [$decoded] = postJsonToLumen($chatUrl, [
             'messages' => [
                 ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => "Document:\n$documentText\n\nQuestion ($language): $userQuestion"]
+                ['role' => 'user', 'content' => "Verified document:\n$documentText\n\nQuestion:\n$userQuestion"],
             ],
-            'prompt'  => $combinedPrompt,
-            'message' => $combinedPrompt
-        ]);
-
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 45,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'lumen-api-key: ' . $apiKey,
-                'lumen-api-secret: ' . $apiSecret
-            ]
-        ]);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlErr  = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlErr) {
-            echo json_encode(['success' => false, 'error' => 'Backend cURL Error: ' . $curlErr]);
-            exit;
+            'prompt' => $systemPrompt . "\n\nVERIFIED DOCUMENT:\n" . $documentText . "\n\nUSER QUESTION:\n" . $userQuestion,
+        ], $apiKey, $apiSecret);
+        $reply = $decoded['reply'] ?? $decoded['response'] ?? $decoded['message'] ?? $decoded['data']['reply'] ?? $decoded['data']['text'] ?? $decoded['choices'][0]['message']['content'] ?? '';
+        if (!is_string($reply) || trim($reply) === '') {
+            respond(['success' => false, 'error' => 'Lumen did not return an explanation. Please try again.'], 502);
         }
-
-        $decoded = json_decode($response, true);
-        $reply = $decoded['reply']
-            ?? $decoded['response']
-            ?? $decoded['message']
-            ?? $decoded['data']['reply']
-            ?? $decoded['data']['text']
-            ?? $decoded['choices'][0]['message']['content']
-            ?? $response;
-
-        echo json_encode([
-            'success'   => ($httpCode >= 200 && $httpCode < 300),
-            'mode'      => 'live_lumen_chat',
-            'http_code' => $httpCode,
-            'reply'     => is_string($reply) ? $reply : json_encode($reply, JSON_PRETTY_PRINT)
-        ]);
-        exit;
+        respond(['success' => true, 'mode' => 'live_lumen_chat', 'reply' => $reply]);
     }
 
-    // Smart contextual fallback based on language
-    $replyText = "📌 PALIWANAG SA DOKUMENTO ($language):\n"
-        . "• Ito ay opisyal na rekord para sa sambahayan/residente sa Barangay Palatiw, Pasig City.\n"
-        . "• May nakatalang mahahalagang detalye gaya ng Control/Reference Number, petsa/halaga, at kailangang aksyunan agad.\n\n"
-        . "✅ MGA HAKBANG NA DAPAT GAWIN (ACTION STEPS):\n"
-        . "1. I-save at i-print ang verified SagipRekord Slip na ito bilang opisyal na digital copy.\n"
-        . "2. Pumunta sa Barangay Palatiw Hall / DRRMO Desk at ipakita ang Reference Number.\n"
-        . "3. Kung may nawawalang ID o reseta dahil sa baha, humingi ng libreng Barangay Certificate of Calamity Victim.\n"
-        . "4. Kumpletuhin ang pag-claim o pagbayad bago ang nakasaad na deadline.";
-
-    echo json_encode([
-        'success' => true,
-        'mode'    => 'demo_fallback',
-        'reply'   => $replyText
-    ]);
-    exit;
+    preg_match('/(?:Reference|Control\\s*\\/\\s*Stub\\s*No|Control\\s*No|Account\\s*No|OR\\s*No)\\s*:\\s*([^\\r\\n]+)/i', $documentText, $referenceMatch);
+    preg_match('/(?:Deadline|Due\\s*Date|Date\\s*Issued)\\s*:\\s*([^\\r\\n]+)/i', $documentText, $deadlineMatch);
+    $reference = $referenceMatch[1] ?? '';
+    $deadline = $deadlineMatch[1] ?? '';
+    if ($language === 'Simple Plain English') {
+        $reply = "Demo guidance based on the document you provided.\n\n";
+        $reply .= $reference !== '' ? "• Reference number shown: $reference.\n" : "• Check the document for its reference number.\n";
+        $reply .= $deadline !== '' ? "• Date or deadline shown: $deadline.\n" : "• Confirm any deadline with the issuing office.\n";
+        $reply .= "\nNext steps:\n1. Review the extracted text and correct any mistakes.\n2. Contact the office named in the document to confirm requirements.\n3. Keep the verified copy and reference number for follow-up.";
+    } else {
+        $reply = "Demo na paliwanag batay sa dokumentong ibinigay mo.\n\n";
+        $reply .= $reference !== '' ? "• Reference number sa dokumento: $reference.\n" : "• Tingnan ang dokumento para sa reference number.\n";
+        $reply .= $deadline !== '' ? "• Petsa o deadline sa dokumento: $deadline.\n" : "• Kumpirmahin ang deadline sa tanggapang nagbigay ng dokumento.\n";
+        $reply .= "\nMga susunod na hakbang:\n1. Suriin at itama ang mga maling detalye sa teksto.\n2. Tawagan ang tanggapang nakasaad sa dokumento upang kumpirmahin ang mga kailangan.\n3. Itago ang nasuring kopya at reference number para sa follow-up.";
+    }
+    respond(['success' => true, 'mode' => 'demo_fallback', 'reply' => $reply]);
 }
 
-// 3. VAULT CRUD ENDPOINTS
-if ($action === 'list') {
-    $records = json_decode(file_get_contents($dbFile), true) ?: [];
-    echo json_encode(['success' => true, 'records' => $records]);
-    exit;
-}
-
-if ($action === 'save' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $input   = json_decode(file_get_contents('php://input'), true);
-    $records = json_decode(file_get_contents($dbFile), true) ?: [];
-
-    $recordId = !empty($input['id']) ? $input['id'] : 'SR-' . strtoupper(substr(md5(uniqid()), 0, 6));
-
-    $recordData = [
-        'id'              => $recordId,
-        'doc_type'        => $input['doc_type'] ?? 'Forms (DAF-AC Relief Intake)',
-        'resident_name'   => $input['resident_name'] ?? 'Unnamed Resident',
-        'reference_no'    => $input['reference_no'] ?? 'N/A',
-        'amount_or_date'  => $input['amount_or_date'] ?? 'N/A',
-        'purok_address'   => $input['purok_address'] ?? 'Brgy. Palatiw, Pasig City',
-        'priority_level'  => $input['priority_level'] ?? 'High Priority',
-        'original_ocr'    => $input['original_ocr'] ?? '',
-        'verified_ocr'    => $input['verified_ocr'] ?? '',
-        'verified_advice' => $input['verified_advice'] ?? '',
-        'checklist'       => $input['checklist'] ?? [],
-        'correction_note' => $input['correction_note'] ?? 'Checked & verified by user',
-        'edit_count'      => intval($input['edit_count'] ?? 0),
-        'updated_at'      => date('M d, Y h:i A')
-    ];
-
-    $updated = false;
-    foreach ($records as $index => $existing) {
-        if ($existing['id'] === $recordId) {
-            $records[$index] = $recordData;
-            $updated = true;
-            break;
+if ($action === 'save' || $action === 'delete') {
+    if ($method !== 'POST') {
+        respond(['success' => false, 'error' => 'Use POST to change saved records.'], 405);
+    }
+    $input = readJsonBody();
+    if ($action === 'save') {
+        $recordId = textValue($input, 'id', '', 64);
+        if ($recordId !== '' && !preg_match('/^[A-Za-z0-9_-]+$/', $recordId)) {
+            respond(['success' => false, 'error' => 'Record ID contains invalid characters.'], 400);
         }
-    }
-    if (!$updated) {
-        array_unshift($records, $recordData);
+        $verifiedText = textValue($input, 'verified_ocr', '', 50000);
+        if ($verifiedText === '') {
+            respond(['success' => false, 'error' => 'Verified document text is required.'], 400);
+        }
+        $checklistInput = $input['checklist'] ?? [];
+        if (!is_array($checklistInput) || count($checklistInput) > 100) {
+            respond(['success' => false, 'error' => 'Checklist must contain no more than 100 action steps.'], 400);
+        }
+        $checklist = [];
+        foreach ($checklistInput as $item) {
+            if (!is_array($item) || !isset($item['text']) || !is_string($item['text']) || trim($item['text']) === '' || strlen($item['text']) > 1000) {
+                respond(['success' => false, 'error' => 'Each checklist item needs valid text of at most 1,000 characters.'], 400);
+            }
+            $checklist[] = ['text' => trim($item['text']), 'done' => (bool) ($item['done'] ?? false)];
+        }
+        $recordData = [
+            'id' => $recordId !== '' ? $recordId : 'SR-' . strtoupper(bin2hex(random_bytes(4))),
+            'doc_type' => textValue($input, 'doc_type', 'Forms (DAF-AC Relief Intake)', 200),
+            'resident_name' => textValue($input, 'resident_name', 'Unnamed Resident', 200),
+            'reference_no' => textValue($input, 'reference_no', 'N/A', 100),
+            'amount_or_date' => textValue($input, 'amount_or_date', 'N/A', 200),
+            'purok_address' => textValue($input, 'purok_address', 'Brgy. Palatiw, Pasig City', 300),
+            'priority_level' => textValue($input, 'priority_level', 'High Priority', 80),
+            'original_ocr' => textValue($input, 'original_ocr', $verifiedText, 50000),
+            'verified_ocr' => $verifiedText,
+            'verified_advice' => textValue($input, 'verified_advice', '', 20000),
+            'checklist' => $checklist,
+            'correction_note' => textValue($input, 'correction_note', 'Checked and verified by user', 500),
+            'edit_count' => max(0, min(50000, (int) ($input['edit_count'] ?? 0))),
+            'updated_at' => date('M d, Y h:i A'),
+        ];
+
+        $result = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordData): array {
+            $updated = false;
+            foreach ($records as $index => $existing) {
+                if (isset($existing['id']) && $existing['id'] === $recordData['id']) {
+                    $records[$index] = $recordData;
+                    $updated = true;
+                    break;
+                }
+            }
+            if (!$updated) {
+                array_unshift($records, $recordData);
+            }
+            writeRecords($dbFile, $records);
+            return ['record' => $recordData, 'records' => array_values($records)];
+        });
+        respond(['success' => true, 'record' => $result['record'], 'records' => $result['records']]);
     }
 
-    file_put_contents($dbFile, json_encode($records, JSON_PRETTY_PRINT));
-    echo json_encode(['success' => true, 'record' => $recordData, 'records' => $records]);
-    exit;
+    $recordId = textValue($input, 'id', '', 64);
+    if ($recordId === '') {
+        respond(['success' => false, 'error' => 'Record ID is required.'], 400);
+    }
+    $records = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordId): array {
+        $remaining = array_values(array_filter($records, static function ($record) use ($recordId): bool {
+            return !is_array($record) || ($record['id'] ?? '') !== $recordId;
+        }));
+        if (count($remaining) === count($records)) {
+            respond(['success' => false, 'error' => 'The requested record was not found.'], 404);
+        }
+        writeRecords($dbFile, $remaining);
+        return $remaining;
+    });
+    respond(['success' => true, 'records' => $records]);
 }
 
-if ($action === 'delete' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-    $input   = json_decode(file_get_contents('php://input'), true);
-    $id      = $input['id'] ?? '';
-    $records = json_decode(file_get_contents($dbFile), true) ?: [];
-    $records = array_values(array_filter($records, fn($r) => $r['id'] !== $id));
-    file_put_contents($dbFile, json_encode($records, JSON_PRETTY_PRINT));
-    echo json_encode(['success' => true, 'records' => $records]);
-    exit;
-}
-
-echo json_encode(['success' => false, 'error' => 'Invalid API action']);
+respond(['success' => false, 'error' => 'Invalid API action.'], 404);

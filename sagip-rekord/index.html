@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="api-base" content="./api.php" />
   <title>SagipRekord | Community records, ready when it matters</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
@@ -11,7 +12,7 @@
 <body class="app-shell">
 
   <!-- TOAST NOTIFICATION CONTAINER -->
-  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none" aria-live="polite" aria-relevant="additions"></div>
 
   <!-- =========================================================
        TOP APPLICATION HEADER & MODULE NAVIGATION BAR
@@ -37,19 +38,19 @@
   </header>
 
   <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
-  <aside id="appSidebar" class="app-sidebar" aria-label="Main navigation">
+  <aside id="appSidebar" class="app-sidebar" aria-label="Main navigation" aria-hidden="false">
     <p class="sidebar-caption" data-i18n="workspace">WORKSPACE</p>
     <nav class="sidebar-navigation">
-      <button type="button" class="sidebar-link is-active" data-module="dashboard" onclick="NavigationModule.switchModule('dashboard')">
+      <button type="button" class="sidebar-link is-active" data-module="dashboard" aria-label="Overview" onclick="NavigationModule.switchModule('dashboard')">
         <i class="fa-solid fa-house"></i><span data-i18n="overview">Overview</span>
       </button>
-      <button type="button" class="sidebar-link" data-module="wizard" onclick="NavigationModule.switchModule('wizard')">
+      <button type="button" class="sidebar-link" data-module="wizard" aria-label="Document wizard" onclick="NavigationModule.switchModule('wizard')">
         <i class="fa-solid fa-wand-magic-sparkles"></i><span data-i18n="documentWizard">Document wizard</span>
       </button>
-      <button type="button" class="sidebar-link" data-module="vault" onclick="NavigationModule.switchModule('vault')">
+      <button type="button" class="sidebar-link" data-module="vault" aria-label="Records vault" onclick="NavigationModule.switchModule('vault')">
         <i class="fa-solid fa-box-archive"></i><span data-i18n="recordsVault">Records vault</span><span id="navVaultCount" class="sidebar-count">0</span>
       </button>
-      <button type="button" class="sidebar-link" data-module="impact" onclick="NavigationModule.switchModule('impact')">
+      <button type="button" class="sidebar-link" data-module="impact" aria-label="Community hub" onclick="NavigationModule.switchModule('impact')">
         <i class="fa-solid fa-handshake-angle"></i><span data-i18n="communityHub">Community hub</span>
       </button>
     </nav>
@@ -61,7 +62,7 @@
     </div>
     <div class="sidebar-profile">
       <span class="profile-avatar">P</span>
-      <span><strong>Palatiw DRRMO</strong><small>Community workspace</small></span>
+      <span><strong id="sessionDisplayName">Palatiw DRRMO</strong><small>Community workspace</small></span>
     </div>
   </aside>
 
@@ -122,7 +123,7 @@
   <!-- =========================================================
        MODULE 1: GUIDED STEP-BY-STEP DOCUMENT WIZARD
        ========================================================= -->
-  <main id="module-wizard" class="app-module max-w-7xl mx-auto w-full px-4 py-6 flex-1">
+  <main id="module-wizard" class="app-module hidden max-w-7xl mx-auto w-full px-4 py-6 flex-1">
 
     <!-- PROGRESSIVE STEPPER HEADER BAR -->
     <div class="bg-white dark-card rounded-2xl p-4 border border-slate-200 shadow-sm mb-6">
@@ -705,5 +706,6 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="app-init.js"></script>
 </body>
 </html>

@@ -1,0 +1,3 @@
+<FilesMatch "^(?:\.env.*|records\.json(?:\.lock)?|.*\.tmp)$">
+  Require all denied
+</FilesMatch>
