@@ -4,16 +4,15 @@ AI-powered disaster relief and barangay document digitizer built with Lumen AI.
 
 ## Run locally
 
-The app needs PHP 8+ with PDO MySQL, JSON, and fileinfo extensions. The cURL extension is needed for live Lumen requests. XAMPP includes MariaDB and the PHP MySQL driver.
+<<<<<<<<< Temporary merge branch 1
+The responsive workspace opens on a dashboard with live vault statistics, quick actions, and a collapsible navigation sidebar. The document wizard, records vault, and community help page remain available from the sidebar. Use the ENG / TAG switch to preview the English and Tagalog dashboard and community-help copy; add future translations to the `I18n.translations` dictionaries in `app.js`.
 
-## Database setup
+In Step 1 of the document wizard, upload a file or choose **Take a photo** to capture a document with the device camera and send it through the same OCR workflow. Camera access requires browser permission and a secure context (HTTPS or localhost).
 
-1. Copy `.env.example` to `.env` in this folder and set the database connection values. Do not commit `.env`.
-2. Create the tables by importing `schema.sql` in phpMyAdmin or with the MySQL command-line client. The default database name is `sagiprekord`.
-3. If you have data in `users.json`, `records.json`, or `audit.jsonl`, run `php migrate_json_to_mysql.php` once from this folder. The JSON files are left in place as backups.
-4. Start the PHP server as shown below.
-
-The database stores accounts, saved records, checklists, and audit events. Uploaded source files are sent to OCR but are not retained; the saved record contains the extracted and verified text. For a public deployment, use a dedicated database account with access only to this database instead of the local XAMPP root account.
+The main screens use larger text, larger controls, shorter instructions, and optional collapsible details to make common tasks easier to find.
+=========
+The vanilla app needs PHP 8+ with the JSON, fileinfo, and (for live Lumen requests) cURL extensions.
+>>>>>>>>> Temporary merge branch 2
 
 ```sh
 cd sagip-rekord
