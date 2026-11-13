@@ -23,12 +23,7 @@ function savePreference(key, value) {
 // This local context is UI scaffolding only; it is not an authenticated identity.
 const AppState = {
   currentModule: 'dashboard',
-  session: {
-    userId: 'local-workspace',
-    displayName: 'Palatiw DRRMO',
-    role: 'barangay_worker',
-    authenticated: false
-  },
+  session: null,
   currentLanguage: readPreference('sagiprekord-language', 'en') === 'tl' ? 'tl' : 'en',
   sidebarCollapsed: readPreference('sagiprekord-sidebar-collapsed', 'false') === 'true',
   currentStep: 1,
@@ -47,12 +42,6 @@ function apiUrl(action) {
   const separator = API_BASE_URL.includes('?') ? '&' : '?';
   return `${API_BASE_URL}${separator}action=${encodeURIComponent(action)}`;
 }
-
-const SessionModule = {
-  getContext() {
-    return { ...AppState.session };
-  }
-};
 
 async function requestApi(action, options = {}) {
   const controller = new AbortController();
@@ -78,6 +67,73 @@ async function requestApi(action, options = {}) {
   }
   return data;
 }
+
+const AuthModule = {
+  currentUser: null,
+  permissions: {
+    resident: ['dashboard', 'wizard', 'vault'],
+    worker: ['dashboard', 'wizard', 'vault', 'impact'],
+    admin: ['dashboard', 'wizard', 'vault', 'impact', 'admin']
+  },
+
+  async login(email, password) {
+    const data = await requestApi('auth_login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: email, password })
+    });
+    this.currentUser = data.user;
+    return data.user;
+  },
+
+  async logout() {
+    await requestApi('auth_logout', { method: 'POST' });
+    this.currentUser = null;
+    AppState.session = null;
+    window.location.assign('./login.html');
+  },
+
+  async getCurrentUser() {
+    const data = await requestApi('auth_me');
+    this.currentUser = data.user;
+    AppState.session = data.user;
+    return data.user;
+  },
+
+  hasPermission(requiredRole) {
+    if (!this.currentUser) return false;
+    if (Array.isArray(requiredRole)) return requiredRole.includes(this.currentUser.role);
+    if (this.permissions[this.currentUser.role]?.includes(requiredRole)) return true;
+    return this.currentUser.role === requiredRole;
+  },
+
+  requireRole(allowedRoles) {
+    const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+    if (this.currentUser && roles.includes(this.currentUser.role)) return true;
+    showToast('You do not have permission to access this page.', 'error');
+    return false;
+  },
+
+  async requireAuth() {
+    try {
+      return await this.getCurrentUser();
+    } catch (error) {
+      this.currentUser = null;
+      AppState.session = null;
+      if (error.message === 'Please sign in to continue.' || error.message.includes('inactive')) {
+        window.location.replace('./login.html');
+        return null;
+      }
+      showToast(error.message || 'Could not verify your session.', 'error');
+      window.location.replace('./login.html');
+      return null;
+    }
+  },
+
+  defaultModule() {
+    return this.currentUser?.role === 'admin' ? 'admin' : this.currentUser?.role === 'worker' ? 'vault' : 'dashboard';
+  }
+};
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -127,9 +183,13 @@ function showToast(message, type = 'info') {
    ========================================================= */
 const NavigationModule = {
   switchModule(moduleName) {
-    if (!['dashboard', 'wizard', 'vault', 'impact'].includes(moduleName)) return;
+    if (!['dashboard', 'wizard', 'vault', 'impact', 'admin'].includes(moduleName)) return;
+    if (!AuthModule.hasPermission(moduleName)) {
+      showToast('You do not have permission to access this page.', 'error');
+      moduleName = 'dashboard';
+    }
     AppState.currentModule = moduleName;
-    ['dashboard', 'wizard', 'vault', 'impact'].forEach(mod => {
+    ['dashboard', 'wizard', 'vault', 'impact', 'admin'].forEach(mod => {
       const section = document.getElementById(`module-${mod}`);
       if (section) section.classList.toggle('hidden', mod !== moduleName);
     });
@@ -620,6 +680,7 @@ const WizardModule = {
   loadPreset(type) {
     document.getElementById('recordId').value = '';
     document.getElementById('correctionNote').value = '';
+    document.getElementById('residentAccountEmail').value = '';
 
     const samples = {
       form: {
@@ -695,6 +756,7 @@ function documentInputClear() {
   const input = document.getElementById('documentInput');
   if (input) input.value = '';
   document.getElementById('fileNameDisplay').textContent = 'Drag & Drop Image or PDF Document Here';
+  document.getElementById('residentAccountEmail').value = '';
 }
 
 /* =========================================================
@@ -949,6 +1011,7 @@ const VaultModule = {
     document.getElementById('docType').value = rec.doc_type;
     document.getElementById('priorityLevel').value = rec.priority_level;
     document.getElementById('residentName').value = rec.resident_name;
+    document.getElementById('residentAccountEmail').value = rec.owner_email || '';
     document.getElementById('referenceNo').value = rec.reference_no;
     document.getElementById('amountOrDate').value = rec.amount_or_date || '';
     document.getElementById('purokAddress').value = rec.purok_address;

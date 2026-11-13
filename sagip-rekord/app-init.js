@@ -35,6 +35,7 @@ function setDocumentText(text, title) {
 
   resetVerificationForEdit();
   document.getElementById('recordId').value = '';
+  document.getElementById('residentAccountEmail').value = '';
   document.getElementById('docType').selectedIndex = 0;
   document.getElementById('priorityLevel').selectedIndex = 0;
   document.getElementById('originalOcrStore').value = cleanText;
@@ -265,6 +266,7 @@ function initializeWizard() {
       doc_type: document.getElementById('docType').value,
       priority_level: document.getElementById('priorityLevel').value,
       resident_name: document.getElementById('residentName').value.trim(),
+      owner_email: document.getElementById('residentAccountEmail').value.trim(),
       reference_no: document.getElementById('referenceNo').value.trim(),
       amount_or_date: document.getElementById('amountOrDate').value.trim(),
       purok_address: document.getElementById('purokAddress').value.trim(),
@@ -295,7 +297,7 @@ function initializeWizard() {
   });
 
   document.getElementById('clearFormBtn').addEventListener('click', () => {
-    ['recordId', 'originalOcrStore', 'residentName', 'referenceNo', 'amountOrDate', 'purokAddress', 'verifiedOcrText', 'verifiedAiAdvice', 'correctionNote', 'customQuestion'].forEach(id => {
+    ['recordId', 'originalOcrStore', 'residentName', 'residentAccountEmail', 'referenceNo', 'amountOrDate', 'purokAddress', 'verifiedOcrText', 'verifiedAiAdvice', 'correctionNote', 'customQuestion'].forEach(id => {
       document.getElementById(id).value = '';
     });
     document.getElementById('docType').selectedIndex = 0;
@@ -445,19 +447,213 @@ async function initializeRecords() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function roleLabel(role) {
+  return ({ resident: 'Resident', worker: 'Barangay / Health Worker', admin: 'Administrator' })[role] || 'User';
+}
+
+function initializeRoleUI(user) {
+  document.getElementById('sessionDisplayName').textContent = user.name;
+  document.getElementById('sessionRole').textContent = roleLabel(user.role);
+  document.getElementById('sessionAvatar').textContent = user.name.trim().charAt(0).toUpperCase() || 'U';
+  document.getElementById('navVaultLabel').textContent = user.role === 'resident' ? 'My records' : user.role === 'worker' ? 'Evacuee Ledger' : 'Records vault';
+  document.querySelectorAll('.worker-admin-only').forEach(element => {
+    element.hidden = !['worker', 'admin'].includes(user.role);
+  });
+  document.getElementById('engineBadge').lastChild.textContent = ` ${roleLabel(user.role)} workspace`;
+
+  document.querySelectorAll('.sidebar-link[data-module]').forEach(link => {
+    link.hidden = !AuthModule.hasPermission(link.dataset.module);
+  });
+  document.getElementById('welcomeTitle').textContent = user.role === 'resident'
+    ? `Welcome, ${user.name}.`
+    : user.role === 'worker' ? 'Barangay service workspace.' : 'Administrator workspace.';
+  if (user.role === 'resident') {
+    document.querySelector('.heading-muted').textContent = 'Your personal records, within reach.';
+    document.querySelector('.welcome-copy').textContent = 'Upload your documents, get clear guidance, and keep track of your own records.';
+  } else if (user.role === 'worker') {
+    document.querySelector('.heading-muted').textContent = 'Community records, handled with care.';
+    document.querySelector('.welcome-copy').textContent = 'Review resident documents, verify details, and keep community records organized.';
+  } else {
+    document.querySelector('.heading-muted').textContent = 'Your system overview, all in one place.';
+    document.querySelector('.welcome-copy').textContent = 'Manage accounts, review system activity, and access community records.';
+  }
+}
+
+function initializeAdmin() {
+  const form = document.getElementById('adminUserForm');
+  if (!form) return;
+  const userMessage = document.getElementById('adminUserMessage');
+
+  const setUserMessage = (text, type = 'error') => {
+    userMessage.textContent = text;
+    userMessage.className = text ? `auth-message auth-message--${type}` : 'auth-message';
+    if (text) userMessage.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  };
+
+  const resetForm = () => {
+    form.reset();
+    document.getElementById('adminUserId').value = '';
+    document.getElementById('adminUserActive').checked = true;
+    document.getElementById('adminFormTitle').textContent = 'Create account';
+    document.getElementById('adminUserPassword').required = true;
+    document.getElementById('adminPasswordHint').textContent = '(required, at least 8 characters)';
+    setUserMessage('');
+  };
+
+  async function loadAdminData() {
+    const [usersData, auditData] = await Promise.all([
+      requestApi('admin_users'),
+      requestApi('admin_audit'),
+    ]);
+    document.getElementById('adminUsersList').innerHTML = usersData.users.map(user => `
+      <article class="admin-user-row">
+        <div><strong>${escapeHtml(user.name)}</strong><span>${escapeHtml(user.email)} · ${escapeHtml(roleLabel(user.role))}${user.active ? '' : ' · Inactive'}</span></div>
+        <div class="admin-user-actions">
+          <button type="button" class="secondary-button" data-edit-user="${escapeHtml(user.id)}">Edit</button>
+          <button type="button" class="secondary-button" data-toggle-user="${escapeHtml(user.id)}" ${user.id === AuthModule.currentUser.id ? 'disabled' : ''}>${user.active ? 'Deactivate' : 'Activate'}</button>
+        </div>
+      </article>
+    `).join('') || '<p class="admin-empty">No accounts found.</p>';
+    document.getElementById('adminAuditList').innerHTML = auditData.events.map(event => `
+      <article class="admin-audit-row">
+        <strong>${escapeHtml(event.event)}</strong>
+        <span>${escapeHtml(event.actor_name)} · ${escapeHtml(event.actor_role)} · ${escapeHtml(event.timestamp)}</span>
+        ${event.details?.record_id ? `<span>Record: ${escapeHtml(event.details.record_id)}</span>` : ''}
+        ${event.details?.user_id ? `<span>Account: ${escapeHtml(event.details.user_id)}</span>` : ''}
+      </article>
+    `).join('') || '<p class="admin-empty">No activity recorded yet.</p>';
+  }
+
+  document.getElementById('adminResetUser').addEventListener('click', resetForm);
+  document.getElementById('adminUsersList').addEventListener('click', async event => {
+    const editButton = event.target.closest('[data-edit-user]');
+    const toggleButton = event.target.closest('[data-toggle-user]');
+    try {
+      if (editButton) {
+        const { users } = await requestApi('admin_users');
+        const user = users.find(item => item.id === editButton.dataset.editUser);
+        if (!user) throw new Error('The account could not be found.');
+        document.getElementById('adminUserId').value = user.id;
+        document.getElementById('adminUserName').value = user.name;
+        document.getElementById('adminUserEmail').value = user.email;
+        document.getElementById('adminUserRole').value = user.role;
+        document.getElementById('adminUserActive').checked = user.active;
+        document.getElementById('adminUserPassword').value = '';
+        document.getElementById('adminUserPassword').required = false;
+        document.getElementById('adminPasswordHint').textContent = '(leave blank to keep current password)';
+        document.getElementById('adminFormTitle').textContent = 'Edit account';
+        setUserMessage('');
+        document.getElementById('adminUserName').focus();
+      } else if (toggleButton) {
+        const { users } = await requestApi('admin_users');
+        const user = users.find(item => item.id === toggleButton.dataset.toggleUser);
+        if (!user) throw new Error('The account could not be found.');
+        const result = await requestApi('admin_users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            operation: 'update',
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            active: !user.active,
+            password: ''
+          })
+        });
+        if (result.user.id === AuthModule.currentUser.id) AuthModule.currentUser = result.user;
+        await loadAdminData();
+        showToast(`Account ${result.user.active ? 'activated' : 'deactivated'}.`, 'success');
+      }
+    } catch (error) {
+      showToast(error.message || 'Could not update the account.', 'error');
+    }
+  });
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const id = document.getElementById('adminUserId').value;
+    const payload = {
+      operation: id ? 'update' : 'create',
+      id,
+      name: document.getElementById('adminUserName').value.trim(),
+      email: document.getElementById('adminUserEmail').value.trim(),
+      role: document.getElementById('adminUserRole').value,
+      active: document.getElementById('adminUserActive').checked,
+      password: document.getElementById('adminUserPassword').value
+    };
+    const button = form.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      await requestApi('admin_users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      resetForm();
+      await loadAdminData();
+      showToast('Account saved.', 'success');
+    } catch (error) {
+      setUserMessage(error.message || 'Could not save this account.');
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('adminReloadData').addEventListener('click', async () => {
+    try {
+      await loadAdminData();
+      await loadSystemConfig();
+    } catch (error) {
+      showToast(error.message || 'Could not load administration data.', 'error');
+    }
+  });
+
+  async function loadSystemConfig() {
+    const data = await requestApi('admin_config');
+    document.getElementById('adminSystemConfig').innerHTML = `
+      <div class="admin-config-item"><strong>Environment</strong><span>${data.demo_mode ? 'Demo mode forced' : data.lumen_credentials_available ? 'Lumen credentials available' : 'Demo fallback active'}</span></div>
+      <div class="admin-config-item"><strong>OCR service</strong><span>${data.ocr_configured ? 'Configured' : 'Demo fallback'}</span></div>
+      <div class="admin-config-item"><strong>AI chat</strong><span>${data.chat_configured ? 'Configured' : 'Demo fallback'}</span></div>
+      <div class="admin-config-item"><strong>Record storage</strong><span>${data.storage_writable ? 'Writable' : 'Check server permissions'}</span></div>
+    `;
+  }
+
+  loadAdminData().then(loadSystemConfig).catch(error => {
+    showToast(error.message || 'Could not load administration data.', 'error');
+  });
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const user = await AuthModule.requireAuth();
+  if (!user) return;
   initializeSidebar();
-  document.getElementById('sessionDisplayName').textContent = SessionModule.getContext().displayName;
+  document.getElementById('logoutButton').addEventListener('click', async () => {
+    try {
+      await AuthModule.logout();
+    } catch (error) {
+      showToast(error.message || 'Could not sign out.', 'error');
+    }
+  });
   document.querySelectorAll('.language-option').forEach(button => {
     button.addEventListener('click', () => I18n.setLanguage(button.dataset.language));
   });
   I18n.setLanguage(AppState.currentLanguage);
+  initializeRoleUI(user);
+  if (user.role === 'admin') initializeAdmin();
   initializeWizard();
   initializePrintSlip();
   initializeVault();
   AiChatAndChecklistModule.renderChecklist();
   WizardModule.syncStickyContext();
-  NavigationModule.switchModule('dashboard');
+  const requestedModule = new URLSearchParams(window.location.search).get('view') || AuthModule.defaultModule();
+  if (AuthModule.hasPermission(requestedModule)) {
+    NavigationModule.switchModule(requestedModule);
+  } else {
+    NavigationModule.switchModule('dashboard');
+    showToast('You do not have permission to access this page.', 'error');
+  }
   syncSidebarControls();
   updateDashboardMetrics();
   initializeRecords();

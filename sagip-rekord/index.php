@@ -1,3 +1,14 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/auth.php';
+startAuthSession();
+$authUsersFile = __DIR__ . '/users.json';
+ensureDemoAccounts($authUsersFile);
+if (!refreshSessionUser($authUsersFile)) {
+    header('Location: ./login.html');
+    exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -34,6 +45,9 @@
       <button id="sidebarToggleDesktop" class="icon-button desktop-menu-button" type="button" aria-label="Collapse navigation" aria-expanded="true" aria-controls="appSidebar">
         <span class="burger-lines" aria-hidden="true"><span></span><span></span><span></span></span>
       </button>
+      <button id="logoutButton" class="icon-button" type="button" aria-label="Sign out" title="Sign out">
+        <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>
+      </button>
     </div>
   </header>
 
@@ -48,10 +62,13 @@
         <i class="fa-solid fa-wand-magic-sparkles"></i><span data-i18n="documentWizard">Document wizard</span>
       </button>
       <button type="button" class="sidebar-link" data-module="vault" aria-label="Records vault" onclick="NavigationModule.switchModule('vault')">
-        <i class="fa-solid fa-box-archive"></i><span data-i18n="recordsVault">Records vault</span><span id="navVaultCount" class="sidebar-count">0</span>
+        <i class="fa-solid fa-box-archive"></i><span id="navVaultLabel">Records vault</span><span id="navVaultCount" class="sidebar-count">0</span>
       </button>
       <button type="button" class="sidebar-link" data-module="impact" aria-label="Community hub" onclick="NavigationModule.switchModule('impact')">
         <i class="fa-solid fa-handshake-angle"></i><span data-i18n="communityHub">Community hub</span>
+      </button>
+      <button type="button" class="sidebar-link" data-module="admin" aria-label="Administration" onclick="NavigationModule.switchModule('admin')">
+        <i class="fa-solid fa-user-shield"></i><span>Administration</span>
       </button>
     </nav>
     <div class="sidebar-help">
@@ -61,8 +78,8 @@
       <button type="button" onclick="NavigationModule.switchModule('impact')" data-i18n="learnMore">Learn more <i class="fa-solid fa-arrow-right"></i></button>
     </div>
     <div class="sidebar-profile">
-      <span class="profile-avatar">P</span>
-      <span><strong id="sessionDisplayName">Palatiw DRRMO</strong><small>Community workspace</small></span>
+      <span class="profile-avatar" id="sessionAvatar">U</span>
+      <span><strong id="sessionDisplayName">SagipRekord User</strong><small id="sessionRole">Resident</small></span>
     </div>
   </aside>
 
@@ -70,7 +87,7 @@
     <section class="dashboard-welcome">
       <div>
         <p class="eyebrow"><span class="eyebrow-dot"></span><span data-i18n="welcomeEyebrow">YOUR COMMUNITY WORKSPACE</span></p>
-        <h1><span data-i18n="welcomeTitle">Good morning, Palatiw.</span><br><span class="heading-muted" data-i18n="welcomeSubtitle">Let’s keep what matters within reach.</span></h1>
+        <h1><span id="welcomeTitle" data-i18n="welcomeTitle">Good morning, Palatiw.</span><br><span class="heading-muted" data-i18n="welcomeSubtitle">Let’s keep what matters within reach.</span></h1>
         <p class="welcome-copy" data-i18n="welcomeCopy">Scan, verify, and organize important community documents in one calm, secure place.</p>
         <button type="button" class="primary-button" onclick="NavigationModule.switchModule('wizard'); WizardModule.goToStep(1)">
           <i class="fa-solid fa-plus"></i><span data-i18n="startDocument">Start a document</span><i class="fa-solid fa-arrow-right button-arrow"></i>
@@ -356,6 +373,11 @@
               <div>
                 <label class="block text-[11px] font-bold text-slate-600 mb-1">Resident / Biller / Payee Name</label>
                 <input type="text" id="residentName" placeholder="e.g., Mendoza, Teresita L." class="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-xs font-bold outline-none" />
+              </div>
+
+              <div id="residentAccountLink" class="worker-admin-only">
+                <label class="block text-[11px] font-bold text-slate-600 mb-1" for="residentAccountEmail">Link to resident account (optional)</label>
+                <input type="email" id="residentAccountEmail" placeholder="resident@example.org" class="w-full border border-slate-300 bg-white rounded-lg px-3 py-2 text-xs outline-none" />
               </div>
 
               <div>
@@ -677,6 +699,52 @@
         </div>
       </section>
 
+    </div>
+  </main>
+
+  <main id="module-admin" class="app-module hidden admin-module">
+    <section class="admin-heading">
+      <p class="eyebrow"><span class="eyebrow-dot"></span>ADMINISTRATION</p>
+      <h1>Accounts &amp; system activity</h1>
+      <p>Manage workspace access and review recent activity.</p>
+    </section>
+    <div class="admin-grid">
+      <section class="admin-card">
+        <div class="admin-card-heading">
+          <div><h2 id="adminFormTitle">Create account</h2><p>Passwords are stored as hashes on the server.</p></div>
+          <button type="button" class="secondary-button admin-reset-button" id="adminResetUser">New account</button>
+        </div>
+        <form id="adminUserForm" class="admin-user-form">
+          <input type="hidden" name="id" id="adminUserId" />
+          <label>Full name<input name="name" id="adminUserName" type="text" maxlength="120" required /></label>
+          <label>Email<input name="email" id="adminUserEmail" type="email" maxlength="254" required /></label>
+          <label>Role
+            <select name="role" id="adminUserRole" required>
+              <option value="resident">Resident</option>
+              <option value="worker">Barangay / Health Worker</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </label>
+          <label>Temporary password <span id="adminPasswordHint">(required, at least 8 characters)</span>
+            <input name="password" id="adminUserPassword" type="password" minlength="8" autocomplete="new-password" required />
+          </label>
+          <label class="admin-active-option"><input id="adminUserActive" type="checkbox" checked /> Account active</label>
+          <p id="adminUserMessage" class="auth-message" aria-live="polite"></p>
+          <button type="submit" class="primary-button">Save account</button>
+        </form>
+      </section>
+      <section class="admin-card">
+        <div class="admin-card-heading"><div><h2>Accounts</h2><p>Assign staff and administrator access intentionally.</p></div><button type="button" class="secondary-button" id="adminReloadData">Refresh</button></div>
+        <div id="adminUsersList" class="admin-users-list" aria-live="polite"></div>
+      </section>
+      <section class="admin-card admin-audit-card">
+        <div class="admin-card-heading"><div><h2>Recent activity</h2><p>Latest sign-ins and account or record changes.</p></div></div>
+        <div id="adminAuditList" class="admin-audit-list" aria-live="polite"></div>
+      </section>
+      <section class="admin-card">
+        <div class="admin-card-heading"><div><h2>System configuration</h2><p>Read-only service and storage status. Secrets are never shown.</p></div></div>
+        <div id="adminSystemConfig" class="admin-config-list" aria-live="polite"></div>
+      </section>
     </div>
   </main>
 

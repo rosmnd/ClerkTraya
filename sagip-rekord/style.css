@@ -403,3 +403,45 @@ textarea::-webkit-scrollbar-thumb, pre::-webkit-scrollbar-thumb { border-radius:
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.admin-module { max-width: 1540px; }
+.admin-heading { margin: 0 0 24px; }
+.admin-heading h1 { margin: 8px 0; color: var(--color-heading); font: 800 clamp(28px, 3vw, 38px) 'Manrope', sans-serif; letter-spacing: -.04em; }
+.admin-heading > p:last-child { margin: 0; color: #50596B; font-size: 16px; }
+.admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.admin-card { min-width: 0; padding: 22px; border: 1px solid #D7E1F7; border-radius: 15px; background: var(--color-surface); box-shadow: var(--shadow-card); }
+.admin-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+.admin-card-heading h2 { margin: 0; color: var(--color-heading); font: 800 21px 'Manrope', sans-serif; }
+.admin-card-heading p { margin: 6px 0 0; color: #50596B; font-size: 15px; line-height: 1.5; }
+.admin-reset-button, .admin-card .secondary-button { min-height: 44px; padding: 0 13px; border: 1px solid #D7E1F7; border-radius: 10px; background: var(--color-section); color: var(--color-sidebar); font-weight: 700; }
+.admin-reset-button:hover, .admin-card .secondary-button:hover { border-color: var(--color-accent); background: #E8EEFF; }
+.admin-user-form { display: grid; gap: 14px; }
+.admin-user-form > label { display: grid; gap: 7px; color: var(--color-heading); font-size: 15px; font-weight: 700; }
+.admin-user-form input:not([type="checkbox"]), .admin-user-form select { width: 100%; min-height: 48px; padding: 9px 12px; border: 1px solid #AEBBD3; border-radius: 9px; background: #fff; color: var(--color-heading); }
+.admin-user-form input:focus, .admin-user-form select:focus { outline: 3px solid rgba(165, 138, 232, .55); outline-offset: 2px; border-color: var(--color-primary); }
+#adminPasswordHint { color: #50596B; font-size: 13px; font-weight: 500; }
+.admin-user-form .admin-active-option { display: flex; min-height: 44px; align-items: center; grid-template-columns: auto 1fr; }
+.admin-active-option input { width: 20px; height: 20px; accent-color: var(--color-primary); }
+.admin-user-form .primary-button { min-height: 50px; justify-content: center; }
+.admin-users-list, .admin-audit-list, .admin-config-list { display: grid; max-height: 510px; gap: 10px; overflow-y: auto; }
+.admin-user-row, .admin-audit-row, .admin-config-item { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 13px; border: 1px solid #E1E9F8; border-radius: 11px; background: var(--color-section); }
+.admin-user-row > div:first-child, .admin-audit-row, .admin-config-item { min-width: 0; }
+.admin-user-row strong, .admin-user-row span, .admin-audit-row strong, .admin-audit-row span, .admin-config-item strong, .admin-config-item span { display: block; overflow-wrap: anywhere; }
+.admin-user-row strong, .admin-audit-row strong, .admin-config-item strong { color: var(--color-heading); font-size: 15px; }
+.admin-user-row span, .admin-audit-row span, .admin-config-item span { margin-top: 4px; color: #50596B; font-size: 14px; line-height: 1.45; }
+.admin-user-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.admin-user-actions button { min-height: 40px !important; padding: 0 10px !important; font-size: 14px; }
+.admin-user-actions button:disabled { cursor: not-allowed; opacity: .55; }
+.admin-audit-row { display: block; }
+.admin-config-item { align-items: flex-start; }
+.admin-empty { margin: 0; padding: 15px; color: #50596B; font-size: 15px; }
+#adminUserMessage:empty { display: none; }
+
+@media (max-width: 760px) {
+  .admin-grid { grid-template-columns: 1fr; }
+  .admin-audit-card { grid-column: auto; }
+  .admin-card { padding: 17px; }
+  .admin-user-row { align-items: flex-start; flex-direction: column; }
+  .admin-user-actions { width: 100%; }
+  .admin-user-actions button { flex: 1; }
+}

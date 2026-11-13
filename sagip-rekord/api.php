@@ -141,6 +141,8 @@ function textValue(array $input, string $key, string $default, int $maxLength): 
     return $value;
 }
 
+require_once __DIR__ . '/auth.php';
+startAuthSession();
 loadEnvFile(__DIR__ . '/.env');
 $apiKey = configValue('LUMEN_API_KEY');
 $apiSecret = configValue('LUMEN_API_SECRET');
@@ -149,13 +151,43 @@ $chatUrl = configValue('LUMEN_CHAT_URL');
 $demoMode = filter_var(configValue('SAGIPREKORD_DEMO_MODE', 'false'), FILTER_VALIDATE_BOOLEAN);
 $hasLumenCredentials = $apiKey !== '' && $apiSecret !== '';
 $dbFile = __DIR__ . '/records.json';
+$usersFile = __DIR__ . '/users.json';
+$auditFile = __DIR__ . '/audit.jsonl';
+$authUsersFile = $usersFile;
 $action = $_GET['action'] ?? '';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+ensureDemoAccounts($usersFile);
+if (handleAuthAction($action, $method, $usersFile, $auditFile)) {
+    exit;
+}
+$currentUser = requireCurrentUser();
+
+if ($action === 'admin_config') {
+    requireCurrentUser(['admin']);
+    if ($method !== 'GET') {
+        respond(['success' => false, 'error' => 'Use GET to view system configuration.'], 405);
+    }
+    respond([
+        'success' => true,
+        'demo_mode' => $demoMode,
+        'lumen_credentials_available' => $hasLumenCredentials,
+        'ocr_configured' => $ocrUrl !== '' && $hasLumenCredentials,
+        'chat_configured' => $chatUrl !== '' && $hasLumenCredentials,
+        'storage_writable' => (is_file($dbFile) ? is_writable($dbFile) : is_writable(dirname($dbFile))),
+    ]);
+}
+
 if ($action === 'list' && $method === 'GET') {
-    $records = withRecordsLock($dbFile, LOCK_SH, static function (array $records): array {
+    $records = withRecordsLock($dbFile, LOCK_SH, static function (array $records) use ($currentUser): array {
+        if ($currentUser['role'] === 'resident') {
+            return array_values(array_filter($records, static function ($record) use ($currentUser): bool {
+                return is_array($record) && ($record['owner_id'] ?? '') === $currentUser['id'];
+            }));
+        }
         return $records;
     });
+    auditEvent($auditFile, $currentUser, 'records.list', ['count' => count($records)]);
     respond(['success' => true, 'records' => $records]);
 }
 
@@ -325,22 +357,53 @@ if ($action === 'save' || $action === 'delete') {
             'edit_count' => max(0, min(50000, (int) ($input['edit_count'] ?? 0))),
             'updated_at' => date('M d, Y h:i A'),
         ];
+        $ownerId = $currentUser['role'] === 'resident' ? $currentUser['id'] : '';
+        $ownerEmail = strtolower(textValue($input, 'owner_email', '', 254));
+        if ($currentUser['role'] !== 'resident' && $ownerEmail !== '') {
+            $ownerId = withJsonStore($usersFile, [], static function (array &$users) use ($ownerEmail): string {
+                foreach ($users as $account) {
+                    if (strtolower((string) ($account['email'] ?? '')) === $ownerEmail
+                        && ($account['active'] ?? false) === true
+                        && ($account['role'] ?? '') === 'resident') {
+                        return (string) $account['id'];
+                    }
+                }
+                respond(['success' => false, 'error' => 'No active resident account uses that email.'], 400);
+            });
+        }
 
-        $result = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordData): array {
+        $result = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordData, $currentUser, $ownerId, $ownerEmail): array {
             $updated = false;
             foreach ($records as $index => $existing) {
                 if (isset($existing['id']) && $existing['id'] === $recordData['id']) {
+                    if ($currentUser['role'] === 'resident' && ($existing['owner_id'] ?? '') !== $currentUser['id']) {
+                        respond(['success' => false, 'error' => 'You do not have permission to change this record.', 'code' => 'forbidden'], 403);
+                    }
+                    $recordData['owner_id'] = $ownerId !== '' ? $ownerId : ($existing['owner_id'] ?? '');
+                    $recordData['owner_email'] = $ownerEmail !== '' ? $ownerEmail : ($existing['owner_email'] ?? '');
+                    $recordData['created_by'] = $existing['created_by'] ?? $currentUser['id'];
+                    $recordData['verified_by'] = $currentUser['id'];
                     $records[$index] = $recordData;
                     $updated = true;
                     break;
                 }
             }
             if (!$updated) {
+                $recordData['owner_id'] = $ownerId;
+                $recordData['owner_email'] = $ownerEmail;
+                $recordData['created_by'] = $currentUser['id'];
+                $recordData['verified_by'] = $currentUser['id'];
                 array_unshift($records, $recordData);
             }
             writeRecords($dbFile, $records);
             return ['record' => $recordData, 'records' => array_values($records)];
         });
+        if ($currentUser['role'] === 'resident') {
+            $result['records'] = array_values(array_filter($result['records'], static function ($record) use ($currentUser): bool {
+                return ($record['owner_id'] ?? '') === $currentUser['id'];
+            }));
+        }
+        auditEvent($auditFile, $currentUser, $recordId === '' ? 'records.create' : 'records.update', ['record_id' => $result['record']['id']]);
         respond(['success' => true, 'record' => $result['record'], 'records' => $result['records']]);
     }
 
@@ -348,16 +411,32 @@ if ($action === 'save' || $action === 'delete') {
     if ($recordId === '') {
         respond(['success' => false, 'error' => 'Record ID is required.'], 400);
     }
-    $records = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordId): array {
+    $records = withRecordsLock($dbFile, LOCK_EX, static function (array $records) use ($dbFile, $recordId, $currentUser): array {
+        $found = false;
+        foreach ($records as $record) {
+            if (is_array($record) && ($record['id'] ?? '') === $recordId) {
+                $found = true;
+                if ($currentUser['role'] === 'resident' && ($record['owner_id'] ?? '') !== $currentUser['id']) {
+                    respond(['success' => false, 'error' => 'You do not have permission to remove this record.', 'code' => 'forbidden'], 403);
+                }
+                break;
+            }
+        }
+        if (!$found) {
+            respond(['success' => false, 'error' => 'The requested record was not found.'], 404);
+        }
         $remaining = array_values(array_filter($records, static function ($record) use ($recordId): bool {
             return !is_array($record) || ($record['id'] ?? '') !== $recordId;
         }));
-        if (count($remaining) === count($records)) {
-            respond(['success' => false, 'error' => 'The requested record was not found.'], 404);
-        }
         writeRecords($dbFile, $remaining);
         return $remaining;
     });
+    auditEvent($auditFile, $currentUser, 'records.delete', ['record_id' => $recordId]);
+    if ($currentUser['role'] === 'resident') {
+        $records = array_values(array_filter($records, static function ($record) use ($currentUser): bool {
+            return ($record['owner_id'] ?? '') === $currentUser['id'];
+        }));
+    }
     respond(['success' => true, 'records' => $records]);
 }
 
